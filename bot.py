@@ -6,6 +6,7 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.utils import executor
 from datetime import datetime, date, timedelta
+import html
 
 from config import BOT_TOKEN, MY_USER_ID, GIRLFRIEND_USER_ID
 from database import *
@@ -46,12 +47,16 @@ def format_transaction(trans, include_id=False):
     type_text = "Доход" if trans_type == 'income' else "Расход"
     time_str = f" ({time})" if time else ""
     
-    result = f"{emoji} *{type_text}:* {amount:.2f} руб.\n"
-    result += f"   📂 Категория: {category}\n"
+    # Экранируем специальные символы
+    category_escaped = html.escape(category)
+    description_escaped = html.escape(description) if description else ""
+    
+    result = f"{emoji} <b>{type_text}:</b> {amount:.2f} руб.\n"
+    result += f"   📂 Категория: {category_escaped}\n"
     result += f"   📅 Дата: {date_str}{time_str}\n"
     
-    if description:
-        result += f"   📝 Описание: {description}\n"
+    if description_escaped:
+        result += f"   📝 Описание: {description_escaped}\n"
     
     if include_id:
         result += f"   🆔 ID: {trans_id}\n"
@@ -62,15 +67,20 @@ def format_plan(plan, include_id=False):
     """Форматирование плана для отображения"""
     plan_id, title, description, plan_date, time, category, is_shared = plan[:7]
     
+    # Экранируем специальные символы
+    title_escaped = html.escape(title)
+    category_escaped = html.escape(category)
+    description_escaped = html.escape(description) if description else ""
+    
     shared_icon = " 👥" if is_shared else ""
     time_str = f" в {time}" if time else ""
     
-    result = f"📅 *{title}*{shared_icon}\n"
+    result = f"📅 <b>{title_escaped}</b>{shared_icon}\n"
     result += f"   📅 Дата: {plan_date}{time_str}\n"
-    result += f"   🏷️ Категория: {category}\n"
+    result += f"   🏷️ Категория: {category_escaped}\n"
     
-    if description:
-        result += f"   📋 Описание: {description}\n"
+    if description_escaped:
+        result += f"   📋 Описание: {description_escaped}\n"
     
     if include_id:
         result += f"   🆔 ID: {plan_id}\n"
@@ -81,30 +91,44 @@ def format_purchase(purchase, include_id=False):
     """Форматирование покупки для отображения"""
     purchase_id, item_name, cost, priority, target_date, notes, status = purchase[:7]
     
+    # Экранируем специальные символы
+    item_name_escaped = html.escape(item_name)
+    notes_escaped = html.escape(notes) if notes else ""
+    
     emoji = {'high': '🔴', 'medium': '🟡', 'low': '🟢'}[priority]
     date_str = f"до {target_date}" if target_date else ""
     status_emoji = "✅" if status == 'bought' else "📋"
     
-    result = f"{emoji} *{item_name}* {status_emoji}\n"
+    result = f"{emoji} <b>{item_name_escaped}</b> {status_emoji}\n"
     result += f"   💰 Стоимость: {cost:.2f} руб.\n"
     
     if date_str:
         result += f"   📅 {date_str}\n"
     
-    if notes:
-        result += f"   📝 Заметки: {notes}\n"
+    if notes_escaped:
+        result += f"   📝 Заметки: {notes_escaped}\n"
     
     if include_id:
         result += f"   🆔 ID: {purchase_id}\n"
     
     return result
 
-# ========== ОБЩИЙ ОБРАБОТЧИК ОТМЕНЫ ==========
-
 async def cancel_operation(message: types.Message, state: FSMContext, operation_name: str):
     """Отмена текущей операции"""
     await state.finish()
     await message.answer(f"❌ {operation_name} отменено.", reply_markup=get_main_keyboard())
+
+# ========== ОБЩИЙ ОБРАБОТЧИК ОТМЕНЫ ==========
+
+@dp.message_handler(commands=['отмена', 'cancel', 'стоп'], state='*')
+async def cmd_cancel(message: types.Message, state: FSMContext):
+    """Обработчик команды отмены"""
+    current_state = await state.get_state()
+    if current_state is None:
+        return
+    
+    await state.finish()
+    await message.answer("❌ Операция отменена.", reply_markup=get_main_keyboard())
 
 # ========== ОБРАБОТЧИКИ КОМАНД ==========
 
@@ -122,20 +146,20 @@ async def cmd_start(message: types.Message):
 
 Я твой личный финансовый помощник и планировщик для двоих!
 
-📌 **Основные возможности:**
+📌 <b>Основные возможности:</b>
 • 💰 Учет расходов и доходов
 • 📊 Статистика и аналитика
 • 👥 Общие финансы и сравнение
 • 📅 Планировщик с напоминаниями
 • 🛒 Список желаемых покупок
 
-🆕 **Новые функции:**
+🆕 <b>Новые функции:</b>
 • ✏️ Редактирование записей
 • 🗑️ Удаление с подтверждением
 • 🔍 Расширенный поиск
 • 👥 Общие планы
 
-**Для отмены операции** в любой момент отправьте "отмена" или "cancel"
+<b>Для отмены операции</b> в любой момент отправьте "отмена" или "cancel"
 
 Используй кнопки ниже или команды:
 /edit - редактирование записей
@@ -145,15 +169,15 @@ async def cmd_start(message: types.Message):
 /help - справка по командам
 """
     
-    await message.answer(welcome_text, reply_markup=get_main_keyboard())
+    await message.answer(welcome_text, parse_mode='HTML', reply_markup=get_main_keyboard())
 
 @dp.message_handler(commands=['help'])
 async def cmd_help(message: types.Message):
     """Обработчик команды /help"""
     help_text = """
-📚 **Справка по командам:**
+📚 <b>Справка по командам:</b>
 
-**Основные команды:**
+<b>Основные команды:</b>
 /start - запустить бота
 /help - эта справка
 /edit - редактирование записей
@@ -162,19 +186,19 @@ async def cmd_help(message: types.Message):
 /last - последние 10 транзакций
 /weekly - недельная сводка
 
-**Управление записями:**
+<b>Управление записями:</b>
 ✏️ Редактировать - изменить запись
 🗑️ Удалить - удалить запись (с подтверждением)
 
-**Общие планы:**
+<b>Общие планы:</b>
 👥 Общие планы - просмотр и создание
 
-**Отмена операций:**
+<b>Отмена операций:</b>
 В любой момент при добавлении/редактировании
-отправьте "отмена" или "cancel" для возврата в меню
+отправьте "отмена", "cancel" или "стоп" для возврата в меню
 """
     
-    await message.answer(help_text, parse_mode='Markdown')
+    await message.answer(help_text, parse_mode='HTML')
 
 @dp.message_handler(commands=['last'])
 async def cmd_last(message: types.Message):
@@ -188,22 +212,26 @@ async def cmd_last(message: types.Message):
         await message.answer("📭 У вас еще нет транзакций")
         return
     
-    response = "📊 *Последние 10 транзакций:*\n\n"
+    response = "📊 <b>Последние 10 транзакций:</b>\n\n"
     
     for trans in transactions:
         trans_type, amount, category, description, datetime_str = trans
         
+        # Экранируем специальные символы
+        category_escaped = html.escape(category)
+        description_escaped = html.escape(description) if description else ""
+        
         emoji = "💵" if trans_type == 'income' else "💸"
         type_text = "Доход" if trans_type == 'income' else "Расход"
         
-        response += f"{emoji} *{type_text}: {amount:.2f} руб.*\n"
-        response += f"   📂 Категория: {category}\n"
+        response += f"{emoji} <b>{type_text}: {amount:.2f} руб.</b>\n"
+        response += f"   📂 Категория: {category_escaped}\n"
         response += f"   📅 Дата: {datetime_str}\n"
-        if description:
-            response += f"   📝 Описание: {description}\n"
+        if description_escaped:
+            response += f"   📝 Описание: {description_escaped}\n"
         response += "\n"
     
-    await message.answer(response, parse_mode='Markdown')
+    await message.answer(response, parse_mode='HTML')
 
 @dp.message_handler(commands=['weekly'])
 async def cmd_weekly(message: types.Message):
@@ -217,7 +245,7 @@ async def cmd_weekly(message: types.Message):
         await message.answer("📊 Нет данных за последние 4 недели")
         return
     
-    response = "📊 *Еженедельная сводка (последние 4 недели):*\n\n"
+    response = "📊 <b>Еженедельная сводка (последние 4 недели):</b>\n\n"
     
     current_week = None
     for data in weekly_data:
@@ -225,7 +253,7 @@ async def cmd_weekly(message: types.Message):
         
         if week_start != current_week:
             current_week = week_start
-            response += f"\n*📅 Неделя с {week_start}:*\n"
+            response += f"\n<b>📅 Неделя с {week_start}:</b>\n"
         
         balance = income - expense
         response += f"  👤 {username}:\n"
@@ -233,7 +261,7 @@ async def cmd_weekly(message: types.Message):
         response += f"    💸 Расходы: {expense:.2f} руб.\n"
         response += f"    ⚖️ Баланс: {balance:.2f} руб.\n"
     
-    await message.answer(response, parse_mode='Markdown')
+    await message.answer(response, parse_mode='HTML')
 
 @dp.message_handler(commands=['shared'])
 async def cmd_shared(message: types.Message):
@@ -244,10 +272,10 @@ async def cmd_shared(message: types.Message):
     today_expenses = get_daily_combined_expenses()
     
     if not today_expenses:
-        await message.answer("💸 *Сегодня еще не было общих расходов*", parse_mode='Markdown')
+        await message.answer("💸 <b>Сегодня еще не было общих расходов</b>", parse_mode='HTML')
         return
     
-    response = "👫 *Общие расходы сегодня:*\n\n"
+    response = "👫 <b>Общие расходы сегодня:</b>\n\n"
     user_totals = {}
     overall_total = 0
     
@@ -261,11 +289,11 @@ async def cmd_shared(message: types.Message):
         overall_total += amount
     
     for username, total in user_totals.items():
-        response += f"*{username}:* {total:.2f} руб.\n"
+        response += f"<b>{username}:</b> {total:.2f} руб.\n"
     
-    response += f"\n💰 *Всего: {overall_total:.2f} руб.*"
+    response += f"\n💰 <b>Всего: {overall_total:.2f} руб.</b>"
     
-    await message.answer(response, parse_mode='Markdown')
+    await message.answer(response, parse_mode='HTML')
 
 # ========== ОБРАБОТЧИКИ ДОБАВЛЕНИЯ РАСХОДОВ ==========
 
@@ -282,7 +310,7 @@ async def add_expense_start(message: types.Message):
 async def process_expense_amount(message: types.Message, state: FSMContext):
     """Обработка суммы расхода"""
     text = message.text.lower()
-    if text in ['отмена', 'cancel', 'отменить']:
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
         await cancel_operation(message, state, "Добавление расхода")
         return
     
@@ -313,7 +341,7 @@ async def process_expense_category(callback_query: types.CallbackQuery, state: F
 async def cancel_expense_category(message: types.Message, state: FSMContext):
     """Отмена выбора категории расхода"""
     text = message.text.lower()
-    if text in ['отмена', 'cancel', 'отменить']:
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
         await cancel_operation(message, state, "Добавление расхода")
     else:
         await message.answer("Пожалуйста, выберите категорию из предложенных кнопок.")
@@ -322,7 +350,7 @@ async def cancel_expense_category(message: types.Message, state: FSMContext):
 async def process_expense_description(message: types.Message, state: FSMContext):
     """Обработка описания расхода"""
     text = message.text.lower()
-    if text in ['отмена', 'cancel', 'отменить']:
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
         await cancel_operation(message, state, "Добавление расхода")
         return
     
@@ -340,18 +368,18 @@ async def process_expense_description(message: types.Message, state: FSMContext)
     await state.finish()
     
     response = f"""
-✅ *Расход успешно добавлен!*
+✅ <b>Расход успешно добавлен!</b>
 
 💰 Сумма: {data['amount']:.2f} руб.
-📂 Категория: {data['category']}
+📂 Категория: {html.escape(data['category'])}
 📅 Дата: {date.today().strftime('%Y-%m-%d')}
 """
     if description:
-        response += f"📝 Описание: {description}\n"
+        response += f"📝 Описание: {html.escape(description)}\n"
     
     response += f"🆔 ID: {transaction_id}"
     
-    await message.answer(response, parse_mode='Markdown', reply_markup=get_main_keyboard())
+    await message.answer(response, parse_mode='HTML', reply_markup=get_main_keyboard())
 
 # ========== ОБРАБОТЧИКИ ДОБАВЛЕНИЯ ДОХОДОВ ==========
 
@@ -368,7 +396,7 @@ async def add_income_start(message: types.Message):
 async def process_income_amount(message: types.Message, state: FSMContext):
     """Обработка суммы дохода"""
     text = message.text.lower()
-    if text in ['отмена', 'cancel', 'отменить']:
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
         await cancel_operation(message, state, "Добавление дохода")
         return
     
@@ -399,7 +427,7 @@ async def process_income_category(callback_query: types.CallbackQuery, state: FS
 async def cancel_income_category(message: types.Message, state: FSMContext):
     """Отмена выбора категории дохода"""
     text = message.text.lower()
-    if text in ['отмена', 'cancel', 'отменить']:
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
         await cancel_operation(message, state, "Добавление дохода")
     else:
         await message.answer("Пожалуйста, выберите категорию из предложенных кнопок.")
@@ -408,7 +436,7 @@ async def cancel_income_category(message: types.Message, state: FSMContext):
 async def process_income_description(message: types.Message, state: FSMContext):
     """Обработка описания дохода"""
     text = message.text.lower()
-    if text in ['отмена', 'cancel', 'отменить']:
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
         await cancel_operation(message, state, "Добавление дохода")
         return
     
@@ -426,18 +454,18 @@ async def process_income_description(message: types.Message, state: FSMContext):
     await state.finish()
     
     response = f"""
-✅ *Доход успешно добавлен!*
+✅ <b>Доход успешно добавлен!</b>
 
 💰 Сумма: {data['amount']:.2f} руб.
-📂 Категория: {data['category']}
+📂 Категория: {html.escape(data['category'])}
 📅 Дата: {date.today().strftime('%Y-%m-%d')}
 """
     if description:
-        response += f"📝 Описание: {description}\n"
+        response += f"📝 Описание: {html.escape(description)}\n"
     
     response += f"🆔 ID: {transaction_id}"
     
-    await message.answer(response, parse_mode='Markdown', reply_markup=get_main_keyboard())
+    await message.answer(response, parse_mode='HTML', reply_markup=get_main_keyboard())
 
 # ========== ОБРАБОТЧИКИ ДОБАВЛЕНИЯ ПЛАНОВ ==========
 
@@ -454,7 +482,7 @@ async def add_plan_start(message: types.Message):
 async def process_plan_title(message: types.Message, state: FSMContext):
     """Обработка названия плана"""
     text = message.text.lower()
-    if text in ['отмена', 'cancel', 'отменить']:
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
         await cancel_operation(message, state, "Добавление плана")
         return
     
@@ -466,7 +494,7 @@ async def process_plan_title(message: types.Message, state: FSMContext):
 async def process_plan_description(message: types.Message, state: FSMContext):
     """Обработка описания плана"""
     text = message.text.lower()
-    if text in ['отмена', 'cancel', 'отменить']:
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
         await cancel_operation(message, state, "Добавление плана")
         return
     
@@ -479,7 +507,7 @@ async def process_plan_description(message: types.Message, state: FSMContext):
 async def process_plan_date(message: types.Message, state: FSMContext):
     """Обработка даты плана"""
     text = message.text.lower()
-    if text in ['отмена', 'cancel', 'отменить']:
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
         await cancel_operation(message, state, "Добавление плана")
         return
     
@@ -505,7 +533,7 @@ async def process_plan_date(message: types.Message, state: FSMContext):
 async def process_plan_time(message: types.Message, state: FSMContext):
     """Обработка времени плана"""
     text = message.text.lower()
-    if text in ['отмена', 'cancel', 'отменить']:
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
         await cancel_operation(message, state, "Добавление плана")
         return
     
@@ -538,7 +566,7 @@ async def process_plan_category(callback_query: types.CallbackQuery, state: FSMC
 async def cancel_plan_category(message: types.Message, state: FSMContext):
     """Отмена выбора категории плана"""
     text = message.text.lower()
-    if text in ['отмена', 'cancel', 'отменить']:
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
         await cancel_operation(message, state, "Добавление плана")
     else:
         await message.answer("Пожалуйста, выберите категорию из предложенных кнопок.")
@@ -547,7 +575,7 @@ async def cancel_plan_category(message: types.Message, state: FSMContext):
 async def process_plan_shared(message: types.Message, state: FSMContext):
     """Обработка общего статуса плана"""
     text = message.text.lower()
-    if text in ['отмена', 'cancel', 'отменить']:
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
         await cancel_operation(message, state, "Добавление плана")
         return
     
@@ -571,19 +599,19 @@ async def process_plan_shared(message: types.Message, state: FSMContext):
     time_text = f" в {data['time']}" if data['time'] else ""
     
     response = f"""
-✅ *План успешно добавлен!*
+✅ <b>План успешно добавлен!</b>
 
-📝 Название: {data['title']}
+📝 Название: {html.escape(data['title'])}
 📅 Дата: {data['date']}{time_text}
-🏷️ Категория: {data['category']}
+🏷️ Категория: {html.escape(data['category'])}
 👥 Статус: {shared_text}
 """
     if data['description']:
-        response += f"📋 Описание: {data['description']}\n"
+        response += f"📋 Описание: {html.escape(data['description'])}\n"
     
     response += f"🆔 ID: {plan_id}"
     
-    await message.answer(response, parse_mode='Markdown', reply_markup=get_main_keyboard())
+    await message.answer(response, parse_mode='HTML', reply_markup=get_main_keyboard())
 
 # ========== ОБРАБОТЧИКИ ДОБАВЛЕНИЯ ПОКУПОК ==========
 
@@ -600,7 +628,7 @@ async def add_purchase_start(message: types.Message):
 async def process_purchase_name(message: types.Message, state: FSMContext):
     """Обработка названия покупки"""
     text = message.text.lower()
-    if text in ['отмена', 'cancel', 'отменить']:
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
         await cancel_operation(message, state, "Добавление покупки")
         return
     
@@ -612,7 +640,7 @@ async def process_purchase_name(message: types.Message, state: FSMContext):
 async def process_purchase_cost(message: types.Message, state: FSMContext):
     """Обработка стоимости покупки"""
     text = message.text.lower()
-    if text in ['отмена', 'cancel', 'отменить']:
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
         await cancel_operation(message, state, "Добавление покупки")
         return
     
@@ -644,7 +672,7 @@ async def process_purchase_priority(callback_query: types.CallbackQuery, state: 
 async def cancel_purchase_priority(message: types.Message, state: FSMContext):
     """Отмена выбора приоритета покупки"""
     text = message.text.lower()
-    if text in ['отмена', 'cancel', 'отменить']:
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
         await cancel_operation(message, state, "Добавление покупки")
     else:
         await message.answer("Пожалуйста, выберите приоритет из предложенных кнопок.")
@@ -653,7 +681,7 @@ async def cancel_purchase_priority(message: types.Message, state: FSMContext):
 async def process_purchase_date(message: types.Message, state: FSMContext):
     """Обработка даты покупки"""
     text = message.text.lower()
-    if text in ['отмена', 'cancel', 'отменить']:
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
         await cancel_operation(message, state, "Добавление покупки")
         return
     
@@ -674,7 +702,7 @@ async def process_purchase_date(message: types.Message, state: FSMContext):
 async def process_purchase_notes(message: types.Message, state: FSMContext):
     """Обработка заметок покупки"""
     text = message.text.lower()
-    if text in ['отмена', 'cancel', 'отменить']:
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
         await cancel_operation(message, state, "Добавление покупки")
         return
     
@@ -695,9 +723,9 @@ async def process_purchase_notes(message: types.Message, state: FSMContext):
     date_text = f"до {data['date']}" if data['date'] else ""
     
     response = f"""
-✅ *Покупка успешно добавлена!*
+✅ <b>Покупка успешно добавлена!</b>
 
-🛍️ Название: {data['name']}
+🛍️ Название: {html.escape(data['name'])}
 💰 Стоимость: {data['cost']:.2f} руб.
 🎯 Приоритет: {data['priority']}
 """
@@ -705,11 +733,11 @@ async def process_purchase_notes(message: types.Message, state: FSMContext):
         response += f"📅 {date_text}\n"
     
     if notes:
-        response += f"📝 Заметки: {notes}\n"
+        response += f"📝 Заметки: {html.escape(notes)}\n"
     
     response += f"🆔 ID: {purchase_id}"
     
-    await message.answer(response, parse_mode='Markdown', reply_markup=get_main_keyboard())
+    await message.answer(response, parse_mode='HTML', reply_markup=get_main_keyboard())
 
 # ========== ОБРАБОТЧИКИ ПРОСМОТРА ==========
 
@@ -725,12 +753,12 @@ async def show_plans(message: types.Message):
         await message.answer("📭 На сегодня планов нет!")
         return
     
-    response = "📅 *Ваши планы на сегодня:*\n\n"
+    response = "📅 <b>Ваши планы на сегодня:</b>\n\n"
     
     for plan in plans:
         response += format_plan(plan, include_id=True) + "\n"
     
-    await message.answer(response, parse_mode='Markdown')
+    await message.answer(response, parse_mode='HTML')
 
 @dp.message_handler(lambda message: message.text == '📋 Мои покупки')
 async def show_purchases(message: types.Message):
@@ -744,16 +772,16 @@ async def show_purchases(message: types.Message):
         await message.answer("🛍️ Список планируемых покупок пуст!")
         return
     
-    response = "📋 *Ваши планируемые покупки:*\n\n"
+    response = "📋 <b>Ваши планируемые покупки:</b>\n\n"
     total = 0
     
     for purchase in purchases:
         response += format_purchase(purchase, include_id=True) + "\n"
         total += purchase[2]  # estimated_cost
     
-    response += f"\n💰 *Общая сумма: {total:.2f} руб.*"
+    response += f"\n💰 <b>Общая сумма: {total:.2f} руб.</b>"
     
-    await message.answer(response, parse_mode='Markdown')
+    await message.answer(response, parse_mode='HTML')
 
 # ========== ОБРАБОТЧИКИ СТАТИСТИКИ ==========
 
@@ -778,21 +806,21 @@ async def process_stats_menu(callback_query: types.CallbackQuery):
     
     elif action == 'partner':
         await bot.send_message(user_id, 
-                              "👤 *Данные партнера:*", 
-                              parse_mode='Markdown', 
+                              "👤 <b>Данные партнера:</b>", 
+                              parse_mode='HTML', 
                               reply_markup=get_partner_view_keyboard())
     
     elif action == 'combined':
         await bot.send_message(user_id, 
-                              "👫 *Общая статистика:*", 
-                              parse_mode='Markdown', 
+                              "👫 <b>Общая статистика:</b>", 
+                              parse_mode='HTML', 
                               reply_markup=get_combined_stats_keyboard())
     
     elif action == 'comparison':
         comparison = get_monthly_comparison()
         
         if comparison:
-            response = "📊 *Сравнение за месяц:*\n\n"
+            response = "📊 <b>Сравнение за месяц:</b>\n\n"
             total_combined_income = 0
             total_combined_expense = 0
             
@@ -802,7 +830,7 @@ async def process_stats_menu(callback_query: types.CallbackQuery):
                 expense = user_data[2] or 0
                 balance = user_data[3] or 0
                 
-                response += f"*{username}:*\n"
+                response += f"<b>{username}:</b>\n"
                 response += f"  💵 Доходы: {income:.2f} руб.\n"
                 response += f"  💸 Расходы: {expense:.2f} руб.\n"
                 response += f"  ⚖️ Баланс: {balance:.2f} руб.\n\n"
@@ -811,7 +839,7 @@ async def process_stats_menu(callback_query: types.CallbackQuery):
                 total_combined_expense += expense
             
             total_balance = total_combined_income - total_combined_expense
-            response += f"*Общие итоги:*\n"
+            response += f"<b>Общие итоги:</b>\n"
             response += f"  📈 Общий доход: {total_combined_income:.2f} руб.\n"
             response += f"  📉 Общий расход: {total_combined_expense:.2f} руб.\n"
             response += f"  ⚖️ Общий баланс: {total_balance:.2f} руб."
@@ -819,32 +847,32 @@ async def process_stats_menu(callback_query: types.CallbackQuery):
         else:
             response = "📊 Данных для сравнения нет"
         
-        await bot.send_message(user_id, response, parse_mode='Markdown')
+        await bot.send_message(user_id, response, parse_mode='HTML')
     
     elif action == 'categories':
         categories_stats = get_common_categories_statistics()
         
         if categories_stats:
-            response = "📂 *Топ категорий по расходам за месяц:*\n\n"
+            response = "📂 <b>Топ категорий по расходам за месяц:</b>\n\n"
             total_expenses = 0
             
             for i, (category, expense, count) in enumerate(categories_stats, 1):
                 if expense > 0:
                     total_expenses += expense
-                    response += f"{i}. *{category}:* {expense:.2f} руб. ({count} записей)\n"
+                    response += f"{i}. <b>{html.escape(category)}:</b> {expense:.2f} руб. ({count} записей)\n"
             
-            response += f"\n💸 *Всего расходов:* {total_expenses:.2f} руб."
+            response += f"\n💸 <b>Всего расходов:</b> {total_expenses:.2f} руб."
         
         else:
             response = "📊 Данных по категориям нет"
         
-        await bot.send_message(user_id, response, parse_mode='Markdown')
+        await bot.send_message(user_id, response, parse_mode='HTML')
     
     elif action == 'today':
         today_expenses = get_daily_combined_expenses()
         
         if today_expenses:
-            response = "📅 *Расходы за сегодня:*\n\n"
+            response = "📅 <b>Расходы за сегодня:</b>\n\n"
             current_user = None
             user_total = 0
             overall_total = 0
@@ -854,27 +882,27 @@ async def process_stats_menu(callback_query: types.CallbackQuery):
                 
                 if username != current_user:
                     if current_user:
-                        response += f"*Итого: {user_total:.2f} руб.*\n\n"
+                        response += f"<b>Итого: {user_total:.2f} руб.</b>\n\n"
                         user_total = 0
                     
                     current_user = username
-                    response += f"*👤 {username}:*\n"
+                    response += f"<b>👤 {username}:</b>\n"
                 
                 user_total += amount
                 overall_total += amount
                 
-                desc = f" - {description}" if description else ""
-                response += f"  • {category}: {amount:.2f} руб.{desc}\n"
+                desc = f" - {html.escape(description)}" if description else ""
+                response += f"  • {html.escape(category)}: {amount:.2f} руб.{desc}\n"
             
             if current_user:
-                response += f"\n*Итого: {user_total:.2f} руб.*"
+                response += f"\n<b>Итого: {user_total:.2f} руб.</b>"
             
-            response += f"\n\n💰 *Общая сумма: {overall_total:.2f} руб.*"
+            response += f"\n\n💰 <b>Общая сумма: {overall_total:.2f} руб.</b>"
         
         else:
-            response = "💸 *Сегодня еще не было расходов*"
+            response = "💸 <b>Сегодня еще не было расходов</b>"
         
-        await bot.send_message(user_id, response, parse_mode='Markdown')
+        await bot.send_message(user_id, response, parse_mode='HTML')
     
     await callback_query.answer()
 
@@ -903,18 +931,18 @@ async def process_period_statistics(callback_query: types.CallbackQuery):
         balance = total_income - total_expense
         
         response = f"""
-📊 *Статистика за {period_text}:*
+📊 <b>Статистика за {period_text}:</b>
 
-📈 *Доходы:* {total_income:.2f} руб.
-📉 *Расходы:* {total_expense:.2f} руб.
-💰 *Баланс:* {balance:.2f} руб.
-📋 *Количество операций:* {count}
+📈 <b>Доходы:</b> {total_income:.2f} руб.
+📉 <b>Расходы:</b> {total_expense:.2f} руб.
+💰 <b>Баланс:</b> {balance:.2f} руб.
+📋 <b>Количество операций:</b> {count}
         """
         
         transactions = get_user_transactions(user_id, action)
         
         if transactions:
-            response += "\n\n📝 *Детали операций:*\n\n"
+            response += "\n\n📝 <b>Детали операций:</b>\n\n"
             
             if action == 'today':
                 for trans in transactions:
@@ -927,14 +955,14 @@ async def process_period_statistics(callback_query: types.CallbackQuery):
                     
                     if trans_date != current_date:
                         current_date = trans_date
-                        response += f"\n📅 *{trans_date}:*\n"
+                        response += f"\n📅 <b>{trans_date}:</b>\n"
                     
                     response += "  " + format_transaction(trans)
     
     else:
-        response = f"📊 *Нет данных за {period_text}*"
+        response = f"📊 <b>Нет данных за {period_text}</b>"
     
-    await bot.send_message(user_id, response, parse_mode='Markdown')
+    await bot.send_message(user_id, response, parse_mode='HTML')
     await callback_query.answer()
 
 # ========== ОБРАБОТЧИКИ УПРАВЛЕНИЯ ЗАПИСЯМИ ==========
@@ -945,9 +973,9 @@ async def show_management(message: types.Message):
     if not is_authorized_user(message.from_user.id):
         return
     
-    await message.answer("🔧 **Управление записями:**\n\n"
+    await message.answer("🔧 <b>Управление записями:</b>\n\n"
                         "Выберите действие:", 
-                        parse_mode='Markdown',
+                        parse_mode='HTML',
                         reply_markup=get_management_keyboard())
 
 # ========== ОБРАБОТЧИКИ ОБЩИХ ФИНАНСОВ ==========
@@ -958,9 +986,9 @@ async def show_combined_finances(message: types.Message):
     if not is_authorized_user(message.from_user.id):
         return
     
-    await message.answer("👫 **Общие финансы:**\n\n"
+    await message.answer("👫 <b>Общие финансы:</b>\n\n"
                         "Выберите действие:", 
-                        parse_mode='Markdown',
+                        parse_mode='HTML',
                         reply_markup=get_combined_stats_keyboard())
 
 # ========== ОБРАБОТЧИКИ ПОИСКА ==========
@@ -971,9 +999,9 @@ async def show_search_menu(message: types.Message):
     if not is_authorized_user(message.from_user.id):
         return
     
-    await message.answer("🔍 **Поиск записей:**\n\n"
+    await message.answer("🔍 <b>Поиск записей:</b>\n\n"
                         "Выберите тип поиска:",
-                        parse_mode='Markdown',
+                        parse_mode='HTML',
                         reply_markup=get_search_keyboard())
 
 # ========== ОБРАБОТЧИКИ КНОПОК НАЗАД ==========
@@ -1006,8 +1034,8 @@ async def back_to_stats(callback_query: types.CallbackQuery):
 async def back_to_management(callback_query: types.CallbackQuery):
     """Возврат в меню управления"""
     await bot.send_message(callback_query.from_user.id,
-                          "🔧 **Управление записями:**",
-                          parse_mode='Markdown',
+                          "🔧 <b>Управление записями:</b>",
+                          parse_mode='HTML',
                           reply_markup=get_management_keyboard())
     await callback_query.answer()
 
@@ -1015,8 +1043,8 @@ async def back_to_management(callback_query: types.CallbackQuery):
 async def back_to_search(callback_query: types.CallbackQuery):
     """Возврат в меню поиска"""
     await bot.send_message(callback_query.from_user.id,
-                          "🔍 **Поиск записей:**",
-                          parse_mode='Markdown',
+                          "🔍 <b>Поиск записей:</b>",
+                          parse_mode='HTML',
                           reply_markup=get_search_keyboard())
     await callback_query.answer()
 
