@@ -965,19 +965,6 @@ async def process_period_statistics(callback_query: types.CallbackQuery):
     await bot.send_message(user_id, response, parse_mode='HTML')
     await callback_query.answer()
 
-# ========== ОБРАБОТЧИКИ УПРАВЛЕНИЯ ЗАПИСЯМИ ==========
-
-@dp.message_handler(lambda message: message.text == '🔧 Управление')
-async def show_management(message: types.Message):
-    """Показать меню управления"""
-    if not is_authorized_user(message.from_user.id):
-        return
-    
-    await message.answer("🔧 <b>Управление записями:</b>\n\n"
-                        "Выберите действие:", 
-                        parse_mode='HTML',
-                        reply_markup=get_management_keyboard())
-
 # ========== ОБРАБОТЧИКИ ОБЩИХ ФИНАНСОВ ==========
 
 @dp.message_handler(lambda message: message.text == '👫 Общие финансы')
@@ -990,6 +977,355 @@ async def show_combined_finances(message: types.Message):
                         "Выберите действие:", 
                         parse_mode='HTML',
                         reply_markup=get_combined_stats_keyboard())
+
+# ========== ОБРАБОТЧИКИ КНОПОК ОБЩИХ ФИНАНСОВ ==========
+
+@dp.callback_query_handler(lambda c: c.data.startswith('combined_'))
+async def process_combined_finances(callback_query: types.CallbackQuery):
+    """Обработка кнопок общих финансов"""
+    action = callback_query.data[9:]  # Убираем 'combined_'
+    user_id = callback_query.from_user.id
+    
+    if action == 'expenses':
+        # Общие расходы
+        shared_expenses = get_shared_expenses_by_category()
+        
+        if shared_expenses:
+            response = "📊 <b>Общие расходы по категориям за месяц:</b>\n\n"
+            total_expenses = 0
+            user1_total = 0
+            user2_total = 0
+            
+            for category, user1_exp, user2_exp, total in shared_expenses:
+                if total > 0:
+                    total_expenses += total
+                    user1_total += user1_exp or 0
+                    user2_total += user2_exp or 0
+                    
+                    response += f"<b>{html.escape(category)}:</b>\n"
+                    response += f"  • Ты: {user1_exp:.2f} руб.\n"
+                    response += f"  • Партнер: {user2_exp:.2f} руб.\n"
+                    response += f"  • <b>Всего: {total:.2f} руб.</b>\n\n"
+            
+            response += f"<b>Итоги:</b>\n"
+            response += f"  • Твои расходы: {user1_total:.2f} руб.\n"
+            response += f"  • Расходы партнера: {user2_total:.2f} руб.\n"
+            response += f"  • <b>Общие расходы: {total_expenses:.2f} руб.</b>"
+        else:
+            response = "📊 Нет данных об общих расходах за месяц"
+        
+        await bot.send_message(user_id, response, parse_mode='HTML')
+    
+    elif action == 'incomes':
+        # Общие доходы
+        combined_stats = get_combined_statistics('month')
+        
+        if combined_stats:
+            response = "💰 <b>Общие доходы за месяц:</b>\n\n"
+            total_combined_income = 0
+            total_combined_expense = 0
+            
+            for user_data in combined_stats:
+                total_income, total_expense, user_id_db = user_data
+                total_combined_income += total_income or 0
+                total_combined_expense += total_expense or 0
+            
+            # Получаем имена пользователей
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute('SELECT full_name FROM users WHERE id IN (?, ?)', 
+                         (MY_USER_ID, GIRLFRIEND_USER_ID))
+            users = cursor.fetchall()
+            conn.close()
+            
+            if len(users) >= 2:
+                user1_name = users[0][0] if users[0] else "Пользователь 1"
+                user2_name = users[1][0] if users[1] else "Пользователь 2"
+                
+                # Получаем доходы по каждому пользователю
+                user1_income = 0
+                user2_income = 0
+                
+                for user_data in combined_stats:
+                    total_income, total_expense, user_id_db = user_data
+                    if user_id_db == MY_USER_ID:
+                        user1_income = total_income or 0
+                    elif user_id_db == GIRLFRIEND_USER_ID:
+                        user2_income = total_income or 0
+                
+                response += f"<b>{user1_name}:</b> {user1_income:.2f} руб.\n"
+                response += f"<b>{user2_name}:</b> {user2_income:.2f} руб.\n"
+                response += f"\n<b>Общие доходы:</b> {total_combined_income:.2f} руб."
+            else:
+                response += f"<b>Общие доходы:</b> {total_combined_income:.2f} руб."
+        else:
+            response = "💰 Нет данных об общих доходах за месяц"
+        
+        await bot.send_message(user_id, response, parse_mode='HTML')
+    
+    elif action == 'categories':
+        # Сравнение по категориям
+        categories_stats = get_shared_expenses_by_category()
+        
+        if categories_stats:
+            response = "📊 <b>Сравнение расходов по категориям за месяц:</b>\n\n"
+            
+            for category, user1_exp, user2_exp, total in categories_stats:
+                if total > 0:
+                    user1_percent = (user1_exp / total * 100) if total > 0 else 0
+                    user2_percent = (user2_exp / total * 100) if total > 0 else 0
+                    
+                    response += f"<b>{html.escape(category)}</b> - {total:.2f} руб.\n"
+                    response += f"  • Ты: {user1_exp:.2f} руб. ({user1_percent:.1f}%)\n"
+                    response += f"  • Партнер: {user2_exp:.2f} руб. ({user2_percent:.1f}%)\n\n"
+        else:
+            response = "📊 Нет данных для сравнения по категориям"
+        
+        await bot.send_message(user_id, response, parse_mode='HTML')
+    
+    elif action == 'monthly':
+        # Итоги за месяц
+        comparison = get_monthly_comparison()
+        
+        if comparison:
+            response = "📈 <b>Итоги за месяц:</b>\n\n"
+            total_combined_income = 0
+            total_combined_expense = 0
+            
+            for user_data in comparison:
+                username = user_data[0]
+                income = user_data[1] or 0
+                expense = user_data[2] or 0
+                balance = user_data[3] or 0
+                
+                response += f"<b>{username}:</b>\n"
+                response += f"  💵 Доходы: {income:.2f} руб.\n"
+                response += f"  💸 Расходы: {expense:.2f} руб.\n"
+                response += f"  ⚖️ Баланс: {balance:.2f} руб.\n\n"
+                
+                total_combined_income += income
+                total_combined_expense += expense
+            
+            total_balance = total_combined_income - total_combined_expense
+            
+            response += f"<b>Общие итоги:</b>\n"
+            response += f"  📈 Общий доход: {total_combined_income:.2f} руб.\n"
+            response += f"  📉 Общий расход: {total_combined_expense:.2f} руб.\n"
+            response += f"  ⚖️ Общий баланс: {total_balance:.2f} руб."
+        else:
+            response = "📈 Нет данных за месяц"
+        
+        await bot.send_message(user_id, response, parse_mode='HTML')
+    
+    elif action == 'plans':
+        # Совместные планы
+        shared_plans = get_shared_plans()
+        
+        if shared_plans:
+            response = "📅 <b>Совместные планы:</b>\n\n"
+            
+            current_date = None
+            for plan in shared_plans:
+                # Структура данных из get_shared_plans():
+                # id, user_id, title, description, date, time, category, is_shared, 
+                # notification_enabled, notification_time, is_deleted, created_at, updated_at, username, full_name
+                
+                if len(plan) >= 14:
+                    plan_date = plan[4]
+                    title = plan[2]
+                    description = plan[3]
+                    time = plan[5]
+                    category = plan[6]
+                    username = plan[13] or plan[12]  # full_name или username
+                    
+                    if plan_date != current_date:
+                        current_date = plan_date
+                        response += f"\n<b>📅 {plan_date}:</b>\n"
+                    
+                    time_str = f" в {time}" if time else ""
+                    response += f"  • <b>{html.escape(title)}</b>{time_str}\n"
+                    response += f"    👤 {username} | 🏷️ {html.escape(category)}\n"
+                    
+                    if description:
+                        desc_short = description[:50] + "..." if len(description) > 50 else description
+                        response += f"    📝 {html.escape(desc_short)}\n"
+                    
+                    response += "\n"
+        else:
+            response = "📅 Нет совместных планов"
+        
+        await bot.send_message(user_id, response, parse_mode='HTML')
+    
+    elif action == 'back_to_stats':
+        # Возврат в меню статистики
+        await bot.send_message(user_id,
+                              "📊 Выберите тип статистики:",
+                              reply_markup=get_statistics_menu_keyboard())
+    
+    await callback_query.answer()
+
+# ========== ОБРАБОТЧИКИ ДАННЫХ ПАРТНЕРА ==========
+
+@dp.callback_query_handler(lambda c: c.data.startswith('partner_'))
+async def process_partner_data(callback_query: types.CallbackQuery):
+    """Обработка кнопок данных партнера"""
+    action = callback_query.data[8:]  # Убираем 'partner_'
+    user_id = callback_query.from_user.id
+    
+    # Определяем ID партнера
+    current_user_id = callback_query.from_user.id
+    partner_id = GIRLFRIEND_USER_ID if current_user_id == MY_USER_ID else MY_USER_ID
+    
+    if action == 'expenses':
+        # Расходы партнера
+        partner_expenses = get_user_transactions(partner_id, 'month', 'expense')
+        
+        if partner_expenses:
+            response = f"💸 <b>Расходы партнера за месяц:</b>\n\n"
+            total = 0
+            
+            for expense in partner_expenses:
+                if len(expense) >= 6:
+                    trans_id, trans_type, amount, category, description, trans_date, time = expense[:7]
+                    total += amount
+                    
+                    time_str = f" ({time})" if time else ""
+                    response += f"• {category}: {amount:.2f} руб. ({trans_date}{time_str})\n"
+                    if description:
+                        response += f"  {description}\n"
+            
+            response += f"\n<b>Всего: {total:.2f} руб.</b>"
+        else:
+            response = "💸 У партнера нет расходов за месяц"
+        
+        await bot.send_message(user_id, response, parse_mode='HTML')
+    
+    elif action == 'incomes':
+        # Доходы партнера
+        partner_incomes = get_user_transactions(partner_id, 'month', 'income')
+        
+        if partner_incomes:
+            response = f"💵 <b>Доходы партнера за месяц:</b>\n\n"
+            total = 0
+            
+            for income in partner_incomes:
+                if len(income) >= 6:
+                    trans_id, trans_type, amount, category, description, trans_date, time = income[:7]
+                    total += amount
+                    
+                    time_str = f" ({time})" if time else ""
+                    response += f"• {category}: {amount:.2f} руб. ({trans_date}{time_str})\n"
+                    if description:
+                        response += f"  {description}\n"
+            
+            response += f"\n<b>Всего: {total:.2f} руб.</b>"
+        else:
+            response = "💵 У партнера нет доходов за месяц"
+        
+        await bot.send_message(user_id, response, parse_mode='HTML')
+    
+    elif action == 'plans':
+        # Планы партнера на сегодня
+        partner_plans = get_user_plans(partner_id)
+        
+        if partner_plans:
+            response = f"📅 <b>Планы партнера на сегодня:</b>\n\n"
+            
+            for plan in partner_plans:
+                if len(plan) >= 7:
+                    plan_id, title, description, plan_date, time, category, is_shared = plan[:7]
+                    
+                    time_str = f" в {time}" if time else ""
+                    response += f"• <b>{html.escape(title)}</b>{time_str}\n"
+                    response += f"  🏷️ {html.escape(category)}\n"
+                    if description:
+                        response += f"  📝 {html.escape(description)}\n"
+                    response += "\n"
+        else:
+            response = "📅 У партнера нет планов на сегодня"
+        
+        await bot.send_message(user_id, response, parse_mode='HTML')
+    
+    elif action == 'purchases':
+        # Покупки партнера
+        partner_purchases = get_user_purchases(partner_id)
+        
+        if partner_purchases:
+            response = f"🛍️ <b>Планируемые покупки партнера:</b>\n\n"
+            total = 0
+            
+            for purchase in partner_purchases:
+                if len(purchase) >= 7:
+                    purchase_id, item_name, cost, priority, target_date, notes, status = purchase[:7]
+                    total += cost
+                    
+                    emoji = {'high': '🔴', 'medium': '🟡', 'low': '🟢'}[priority]
+                    date_str = f"до {target_date}" if target_date else ""
+                    
+                    response += f"{emoji} <b>{html.escape(item_name)}</b> - {cost:.2f} руб. {date_str}\n"
+                    if notes:
+                        response += f"  📝 {html.escape(notes)}\n"
+                    response += "\n"
+            
+            response += f"<b>Общая сумма: {total:.2f} руб.</b>"
+        else:
+            response = "🛍️ У партнера нет планируемых покупок"
+        
+        await bot.send_message(user_id, response, parse_mode='HTML')
+    
+    elif action == 'full_stats':
+        # Полная статистика партнера
+        partner_stats = get_period_statistics(partner_id, 'month')
+        
+        if partner_stats:
+            total_income = partner_stats[0] or 0
+            total_expense = partner_stats[1] or 0
+            count = partner_stats[2] or 0
+            balance = total_income - total_expense
+            
+            response = f"📊 <b>Полная статистика партнера за месяц:</b>\n\n"
+            response += f"📈 <b>Доходы:</b> {total_income:.2f} руб.\n"
+            response += f"📉 <b>Расходы:</b> {total_expense:.2f} руб.\n"
+            response += f"💰 <b>Баланс:</b> {balance:.2f} руб.\n"
+            response += f"📋 <b>Количество операций:</b> {count}\n"
+            
+            # Последние 5 транзакций
+            recent = get_recent_transactions(partner_id, 5)
+            if recent:
+                response += f"\n<b>Последние операции:</b>\n"
+                for trans in recent:
+                    trans_type, amount, category, description, datetime_str = trans
+                    emoji = "💵" if trans_type == 'income' else "💸"
+                    type_text = "Доход" if trans_type == 'income' else "Расход"
+                    
+                    response += f"{emoji} {type_text}: {amount:.2f} руб. - {category}\n"
+                    if description:
+                        response += f"  {description}\n"
+        else:
+            response = "📊 Нет статистики по партнеру"
+        
+        await bot.send_message(user_id, response, parse_mode='HTML')
+    
+    elif action == 'back_to_stats':
+        # Возврат в меню статистики
+        await bot.send_message(user_id,
+                              "📊 Выберите тип статистики:",
+                              reply_markup=get_statistics_menu_keyboard())
+    
+    await callback_query.answer()
+
+# ========== ОБРАБОТЧИКИ УПРАВЛЕНИЯ ЗАПИСЯМИ ==========
+
+@dp.message_handler(lambda message: message.text == '🔧 Управление')
+async def show_management(message: types.Message):
+    """Показать меню управления"""
+    if not is_authorized_user(message.from_user.id):
+        return
+    
+    await message.answer("🔧 <b>Управление записями:</b>\n\n"
+                        "Выберите действие:", 
+                        parse_mode='HTML',
+                        reply_markup=get_management_keyboard())
 
 # ========== ОБРАБОТЧИКИ ПОИСКА ==========
 
