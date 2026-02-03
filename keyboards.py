@@ -27,6 +27,12 @@ def get_main_keyboard():
     )
     return keyboard
 
+def get_cancel_keyboard():
+    """Клавиатура с кнопкой отмены"""
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton('❌ Отмена', callback_data='cancel_edit'))
+    return keyboard
+
 def get_back_keyboard():
     """Клавиатура с кнопкой назад"""
     keyboard = InlineKeyboardMarkup()
@@ -41,6 +47,7 @@ def get_expense_categories_keyboard():
     categories = ['Еда', 'Транспорт', 'Развлечения', 'Одежда', 'Жилье', 'Здоровье', 'Подарки', 'Другое']
     for cat in categories:
         keyboard.insert(InlineKeyboardButton(cat, callback_data=f'expense_cat_{cat}'))
+    keyboard.add(InlineKeyboardButton('❌ Отмена', callback_data='cancel_edit'))
     return keyboard
 
 def get_income_categories_keyboard():
@@ -49,6 +56,7 @@ def get_income_categories_keyboard():
     categories = ['Зарплата', 'Подработка', 'Инвестиции', 'Подарок', 'Возврат долга', 'Прочее']
     for cat in categories:
         keyboard.insert(InlineKeyboardButton(cat, callback_data=f'income_cat_{cat}'))
+    keyboard.add(InlineKeyboardButton('❌ Отмена', callback_data='cancel_edit'))
     return keyboard
 
 def get_plan_categories_keyboard():
@@ -57,6 +65,7 @@ def get_plan_categories_keyboard():
     categories = ['личные', 'работа', 'семья', 'отдых', 'здоровье', 'другое']
     for cat in categories:
         keyboard.insert(InlineKeyboardButton(cat, callback_data=f'plan_cat_{cat}'))
+    keyboard.add(InlineKeyboardButton('❌ Отмена', callback_data='cancel_edit'))
     return keyboard
 
 def get_priority_keyboard():
@@ -67,6 +76,7 @@ def get_priority_keyboard():
         InlineKeyboardButton('🟡 Средний', callback_data='priority_medium'),
         InlineKeyboardButton('🟢 Низкий', callback_data='priority_low')
     )
+    keyboard.add(InlineKeyboardButton('❌ Отмена', callback_data='cancel_edit'))
     return keyboard
 
 # ========== КЛАВИАТУРЫ ДЛЯ СТАТИСТИКИ ==========
@@ -173,7 +183,7 @@ def get_edit_transaction_keyboard(transaction_id, trans_type):
         InlineKeyboardButton('📝 Изменить описание', callback_data=f'edit_desc_{trans_type}_{transaction_id}'),
         InlineKeyboardButton('🗑️ Удалить', callback_data=f'delete_confirm_{trans_type}_{transaction_id}')
     )
-    keyboard.add(InlineKeyboardButton('🔙 Отмена', callback_data='cancel_edit'))
+    keyboard.add(InlineKeyboardButton('❌ Отмена', callback_data='cancel_edit'))
     return keyboard
 
 def get_edit_plan_keyboard(plan_id):
@@ -193,7 +203,7 @@ def get_edit_plan_keyboard(plan_id):
     )
     keyboard.add(
         InlineKeyboardButton('🗑️ Удалить', callback_data=f'delete_plan_confirm_{plan_id}'),
-        InlineKeyboardButton('🔙 Отмена', callback_data='cancel_edit')
+        InlineKeyboardButton('❌ Отмена', callback_data='cancel_edit')
     )
     return keyboard
 
@@ -214,7 +224,7 @@ def get_edit_purchase_keyboard(purchase_id):
     )
     keyboard.add(
         InlineKeyboardButton('🗑️ Удалить', callback_data=f'delete_purchase_confirm_{purchase_id}'),
-        InlineKeyboardButton('🔙 Отмена', callback_data='cancel_edit')
+        InlineKeyboardButton('❌ Отмена', callback_data='cancel_edit')
     )
     return keyboard
 

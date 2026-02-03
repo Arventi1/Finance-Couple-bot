@@ -150,6 +150,10 @@ def delete_transaction(transaction_id):
     conn.commit()
     conn.close()
 
+def soft_delete_transaction(transaction_id):
+    """Мягкое удаление транзакции (алиас для delete_transaction)"""
+    delete_transaction(transaction_id)
+
 def get_recent_transactions(user_id, limit=5, trans_type=None):
     """Получить последние транзакции"""
     conn = sqlite3.connect(DB_PATH)
@@ -291,7 +295,7 @@ def get_user_plans(user_id, target_date=None):
         target_date = date.today().isoformat()
     
     cursor.execute('''
-        SELECT id, title, description, time, category, is_shared
+        SELECT id, title, description, date, time, category, is_shared
         FROM plans 
         WHERE (user_id = ? OR is_shared = 1)
         AND date = ? 
@@ -315,6 +319,25 @@ def get_recent_plans(user_id, limit=5):
         ORDER BY date DESC, created_at DESC
         LIMIT ?
     ''', (user_id, limit))
+    
+    results = cursor.fetchall()
+    conn.close()
+    return results
+
+def get_shared_plans():
+    """Получить общие планы"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT p.*, u.username, u.full_name 
+        FROM plans p
+        JOIN users u ON p.user_id = u.id
+        WHERE p.is_shared = 1
+        AND p.is_deleted = 0
+        AND p.date >= DATE('now')
+        ORDER BY p.date, p.time NULLS FIRST
+    ''')
     
     results = cursor.fetchall()
     conn.close()
@@ -592,7 +615,7 @@ def get_combined_statistics(period='month'):
     conn.close()
     return results
 
-def get_recent_transactions(user_id, limit=10):
+def get_recent_transactions_all(user_id, limit=10):
     """Получить последние транзакции"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()

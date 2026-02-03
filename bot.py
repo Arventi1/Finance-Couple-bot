@@ -99,6 +99,13 @@ def format_purchase(purchase, include_id=False):
     
     return result
 
+# ========== ОБЩИЙ ОБРАБОТЧИК ОТМЕНЫ ==========
+
+async def cancel_operation(message: types.Message, state: FSMContext, operation_name: str):
+    """Отмена текущей операции"""
+    await state.finish()
+    await message.answer(f"❌ {operation_name} отменено.", reply_markup=get_main_keyboard())
+
 # ========== ОБРАБОТЧИКИ КОМАНД ==========
 
 @dp.message_handler(commands=['start'])
@@ -127,6 +134,8 @@ async def cmd_start(message: types.Message):
 • 🗑️ Удаление с подтверждением
 • 🔍 Расширенный поиск
 • 👥 Общие планы
+
+**Для отмены операции** в любой момент отправьте "отмена" или "cancel"
 
 Используй кнопки ниже или команды:
 /edit - редактирование записей
@@ -160,8 +169,9 @@ async def cmd_help(message: types.Message):
 **Общие планы:**
 👥 Общие планы - просмотр и создание
 
-**Для восстановления удаленных записей**
-обратитесь к администратору базы данных.
+**Отмена операций:**
+В любой момент при добавлении/редактировании
+отправьте "отмена" или "cancel" для возврата в меню
 """
     
     await message.answer(help_text, parse_mode='Markdown')
@@ -242,7 +252,7 @@ async def cmd_shared(message: types.Message):
     overall_total = 0
     
     for expense in today_expenses:
-        username, category, amount, description, created_at = expense
+        username, category, amount, description = expense
         
         if username not in user_totals:
             user_totals[username] = 0
@@ -266,11 +276,16 @@ async def add_expense_start(message: types.Message):
         return
     
     await AddExpense.waiting_for_amount.set()
-    await message.answer("💸 Введите сумму расхода:")
+    await message.answer("💸 Введите сумму расхода:\n\nДля отмены отправьте 'отмена' или 'cancel'")
 
 @dp.message_handler(state=AddExpense.waiting_for_amount)
 async def process_expense_amount(message: types.Message, state: FSMContext):
     """Обработка суммы расхода"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'отменить']:
+        await cancel_operation(message, state, "Добавление расхода")
+        return
+    
     try:
         amount = float(message.text.replace(',', '.'))
         if amount <= 0:
@@ -291,12 +306,26 @@ async def process_expense_category(callback_query: types.CallbackQuery, state: F
     await state.update_data(category=category)
     await AddExpense.next()
     await bot.send_message(callback_query.from_user.id, 
-                          "📝 Добавьте описание (или отправьте '-' если не нужно):")
+                          "📝 Добавьте описание (или отправьте '-' если не нужно):\n\nДля отмены отправьте 'отмена' или 'cancel'")
     await callback_query.answer()
+
+@dp.message_handler(state=AddExpense.waiting_for_category)
+async def cancel_expense_category(message: types.Message, state: FSMContext):
+    """Отмена выбора категории расхода"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'отменить']:
+        await cancel_operation(message, state, "Добавление расхода")
+    else:
+        await message.answer("Пожалуйста, выберите категорию из предложенных кнопок.")
 
 @dp.message_handler(state=AddExpense.waiting_for_description)
 async def process_expense_description(message: types.Message, state: FSMContext):
     """Обработка описания расхода"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'отменить']:
+        await cancel_operation(message, state, "Добавление расхода")
+        return
+    
     data = await state.get_data()
     description = message.text if message.text != '-' else None
     
@@ -311,10 +340,11 @@ async def process_expense_description(message: types.Message, state: FSMContext)
     await state.finish()
     
     response = f"""
-✅ *Расход добавлен!*
+✅ *Расход успешно добавлен!*
 
 💰 Сумма: {data['amount']:.2f} руб.
 📂 Категория: {data['category']}
+📅 Дата: {date.today().strftime('%Y-%m-%d')}
 """
     if description:
         response += f"📝 Описание: {description}\n"
@@ -332,11 +362,16 @@ async def add_income_start(message: types.Message):
         return
     
     await AddIncome.waiting_for_amount.set()
-    await message.answer("💰 Введите сумму дохода:")
+    await message.answer("💰 Введите сумму дохода:\n\nДля отмены отправьте 'отмена' или 'cancel'")
 
 @dp.message_handler(state=AddIncome.waiting_for_amount)
 async def process_income_amount(message: types.Message, state: FSMContext):
     """Обработка суммы дохода"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'отменить']:
+        await cancel_operation(message, state, "Добавление дохода")
+        return
+    
     try:
         amount = float(message.text.replace(',', '.'))
         if amount <= 0:
@@ -357,12 +392,26 @@ async def process_income_category(callback_query: types.CallbackQuery, state: FS
     await state.update_data(category=category)
     await AddIncome.next()
     await bot.send_message(callback_query.from_user.id,
-                          "📝 Добавьте описание (или отправьте '-' если не нужно):")
+                          "📝 Добавьте описание (или отправьте '-' если не нужно):\n\nДля отмены отправьте 'отмена' или 'cancel'")
     await callback_query.answer()
+
+@dp.message_handler(state=AddIncome.waiting_for_category)
+async def cancel_income_category(message: types.Message, state: FSMContext):
+    """Отмена выбора категории дохода"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'отменить']:
+        await cancel_operation(message, state, "Добавление дохода")
+    else:
+        await message.answer("Пожалуйста, выберите категорию из предложенных кнопок.")
 
 @dp.message_handler(state=AddIncome.waiting_for_description)
 async def process_income_description(message: types.Message, state: FSMContext):
     """Обработка описания дохода"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'отменить']:
+        await cancel_operation(message, state, "Добавление дохода")
+        return
+    
     data = await state.get_data()
     description = message.text if message.text != '-' else None
     
@@ -377,10 +426,11 @@ async def process_income_description(message: types.Message, state: FSMContext):
     await state.finish()
     
     response = f"""
-✅ *Доход добавлен!*
+✅ *Доход успешно добавлен!*
 
 💰 Сумма: {data['amount']:.2f} руб.
 📂 Категория: {data['category']}
+📅 Дата: {date.today().strftime('%Y-%m-%d')}
 """
     if description:
         response += f"📝 Описание: {description}\n"
@@ -398,27 +448,42 @@ async def add_plan_start(message: types.Message):
         return
     
     await AddPlan.waiting_for_title.set()
-    await message.answer("📝 Введите название плана:")
+    await message.answer("📝 Введите название плана:\n\nДля отмены отправьте 'отмена' или 'cancel'")
 
 @dp.message_handler(state=AddPlan.waiting_for_title)
 async def process_plan_title(message: types.Message, state: FSMContext):
     """Обработка названия плана"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'отменить']:
+        await cancel_operation(message, state, "Добавление плана")
+        return
+    
     await state.update_data(title=message.text)
     await AddPlan.next()
-    await message.answer("📋 Введите описание плана (или '-' если не нужно):")
+    await message.answer("📋 Введите описание плана (или '-' если не нужно):\n\nДля отмены отправьте 'отмена' или 'cancel'")
 
 @dp.message_handler(state=AddPlan.waiting_for_description)
 async def process_plan_description(message: types.Message, state: FSMContext):
     """Обработка описания плана"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'отменить']:
+        await cancel_operation(message, state, "Добавление плана")
+        return
+    
     description = message.text if message.text != '-' else None
     await state.update_data(description=description)
     await AddPlan.next()
-    await message.answer("📅 Введите дату (в формате ГГГГ-ММ-ДД, или 'сегодня', 'завтра'):")
+    await message.answer("📅 Введите дату (в формате ГГГГ-ММ-ДД, или 'сегодня', 'завтра'):\n\nДля отмены отправьте 'отмена' или 'cancel'")
 
 @dp.message_handler(state=AddPlan.waiting_for_date)
 async def process_plan_date(message: types.Message, state: FSMContext):
     """Обработка даты плана"""
-    date_str = message.text.lower()
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'отменить']:
+        await cancel_operation(message, state, "Добавление плана")
+        return
+    
+    date_str = text
     
     if date_str == 'сегодня':
         plan_date = date.today().isoformat()
@@ -434,11 +499,16 @@ async def process_plan_date(message: types.Message, state: FSMContext):
     
     await state.update_data(date=plan_date)
     await AddPlan.next()
-    await message.answer("⏰ Введите время (в формате ЧЧ:ММ, или '-' если не нужно):")
+    await message.answer("⏰ Введите время (в формате ЧЧ:ММ, или '-' если не нужно):\n\nДля отмены отправьте 'отмена' или 'cancel'")
 
 @dp.message_handler(state=AddPlan.waiting_for_time)
 async def process_plan_time(message: types.Message, state: FSMContext):
     """Обработка времени плана"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'отменить']:
+        await cancel_operation(message, state, "Добавление плана")
+        return
+    
     time_str = message.text if message.text != '-' else None
     
     if time_str and time_str != '-':
@@ -461,13 +531,27 @@ async def process_plan_category(callback_query: types.CallbackQuery, state: FSMC
     
     await bot.send_message(callback_query.from_user.id,
                           "👥 Сделать план общим? (Общие планы видны обоим пользователям)\n"
-                          "Отправьте 'да' или 'нет':")
+                          "Отправьте 'да' или 'нет':\n\nДля отмены отправьте 'отмена' или 'cancel'")
     await callback_query.answer()
+
+@dp.message_handler(state=AddPlan.waiting_for_category)
+async def cancel_plan_category(message: types.Message, state: FSMContext):
+    """Отмена выбора категории плана"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'отменить']:
+        await cancel_operation(message, state, "Добавление плана")
+    else:
+        await message.answer("Пожалуйста, выберите категорию из предложенных кнопок.")
 
 @dp.message_handler(state=AddPlan.waiting_for_shared)
 async def process_plan_shared(message: types.Message, state: FSMContext):
     """Обработка общего статуса плана"""
-    is_shared = message.text.lower() in ['да', 'yes', 'y', 'д']
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'отменить']:
+        await cancel_operation(message, state, "Добавление плана")
+        return
+    
+    is_shared = text in ['да', 'yes', 'y', 'д']
     
     data = await state.get_data()
     
@@ -483,11 +567,11 @@ async def process_plan_shared(message: types.Message, state: FSMContext):
     
     await state.finish()
     
-    shared_text = "общим" if is_shared else "личным"
+    shared_text = "общий" if is_shared else "личный"
     time_text = f" в {data['time']}" if data['time'] else ""
     
     response = f"""
-✅ *План добавлен!*
+✅ *План успешно добавлен!*
 
 📝 Название: {data['title']}
 📅 Дата: {data['date']}{time_text}
@@ -510,18 +594,28 @@ async def add_purchase_start(message: types.Message):
         return
     
     await AddPurchase.waiting_for_name.set()
-    await message.answer("🛍️ Введите название покупки:")
+    await message.answer("🛍️ Введите название покупки:\n\nДля отмены отправьте 'отмена' или 'cancel'")
 
 @dp.message_handler(state=AddPurchase.waiting_for_name)
 async def process_purchase_name(message: types.Message, state: FSMContext):
     """Обработка названия покупки"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'отменить']:
+        await cancel_operation(message, state, "Добавление покупки")
+        return
+    
     await state.update_data(name=message.text)
     await AddPurchase.next()
-    await message.answer("💰 Введите примерную стоимость:")
+    await message.answer("💰 Введите примерную стоимость:\n\nДля отмены отправьте 'отмена' или 'cancel'")
 
 @dp.message_handler(state=AddPurchase.waiting_for_cost)
 async def process_purchase_cost(message: types.Message, state: FSMContext):
     """Обработка стоимости покупки"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'отменить']:
+        await cancel_operation(message, state, "Добавление покупки")
+        return
+    
     try:
         cost = float(message.text.replace(',', '.'))
         if cost <= 0:
@@ -543,12 +637,26 @@ async def process_purchase_priority(callback_query: types.CallbackQuery, state: 
     await AddPurchase.next()
     
     await bot.send_message(callback_query.from_user.id,
-                          "📅 Введите дату, к которой нужна покупка (ГГГГ-ММ-ДД или '-'):")
+                          "📅 Введите дату, к которой нужна покупка (ГГГГ-ММ-ДД или '-'):\n\nДля отмены отправьте 'отмена' или 'cancel'")
     await callback_query.answer()
+
+@dp.message_handler(state=AddPurchase.waiting_for_priority)
+async def cancel_purchase_priority(message: types.Message, state: FSMContext):
+    """Отмена выбора приоритета покупки"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'отменить']:
+        await cancel_operation(message, state, "Добавление покупки")
+    else:
+        await message.answer("Пожалуйста, выберите приоритет из предложенных кнопок.")
 
 @dp.message_handler(state=AddPurchase.waiting_for_date)
 async def process_purchase_date(message: types.Message, state: FSMContext):
     """Обработка даты покупки"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'отменить']:
+        await cancel_operation(message, state, "Добавление покупки")
+        return
+    
     date_str = message.text if message.text != '-' else None
     
     if date_str and date_str != '-':
@@ -560,11 +668,16 @@ async def process_purchase_date(message: types.Message, state: FSMContext):
     
     await state.update_data(date=date_str)
     await AddPurchase.next()
-    await message.answer("📝 Добавьте заметки (или отправьте '-' если не нужно):")
+    await message.answer("📝 Добавьте заметки (или отправьте '-' если не нужно):\n\nДля отмены отправьте 'отмена' или 'cancel'")
 
 @dp.message_handler(state=AddPurchase.waiting_for_notes)
 async def process_purchase_notes(message: types.Message, state: FSMContext):
     """Обработка заметок покупки"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'отменить']:
+        await cancel_operation(message, state, "Добавление покупки")
+        return
+    
     data = await state.get_data()
     notes = message.text if message.text != '-' else None
     
@@ -582,7 +695,7 @@ async def process_purchase_notes(message: types.Message, state: FSMContext):
     date_text = f"до {data['date']}" if data['date'] else ""
     
     response = f"""
-✅ *Покупка добавлена!*
+✅ *Покупка успешно добавлена!*
 
 🛍️ Название: {data['name']}
 💰 Стоимость: {data['cost']:.2f} руб.
@@ -737,7 +850,7 @@ async def process_stats_menu(callback_query: types.CallbackQuery):
             overall_total = 0
             
             for expense in today_expenses:
-                username, category, amount, description, created_at = expense
+                username, category, amount, description = expense
                 
                 if username != current_user:
                     if current_user:
@@ -837,212 +950,18 @@ async def show_management(message: types.Message):
                         parse_mode='Markdown',
                         reply_markup=get_management_keyboard())
 
-# УПРАВЛЕНИЕ РАСХОДАМИ
-@dp.callback_query_handler(lambda c: c.data == 'manage_expense')
-async def manage_expense_start(callback_query: types.CallbackQuery):
-    """Начало управления расходами"""
-    user_id = callback_query.from_user.id
-    
-    expenses = get_user_transactions(user_id, 'month', 'expense')
-    
-    if not expenses:
-        await bot.send_message(user_id, "📭 У вас нет расходов для редактирования")
+# ========== ОБРАБОТЧИКИ ОБЩИХ ФИНАНСОВ ==========
+
+@dp.message_handler(lambda message: message.text == '👫 Общие финансы')
+async def show_combined_finances(message: types.Message):
+    """Показать меню общих финансов"""
+    if not is_authorized_user(message.from_user.id):
         return
     
-    await bot.send_message(user_id,
-                          "💰 **Ваши расходы за месяц:**\n\n"
-                          "Выберите расход для редактирования:",
-                          parse_mode='Markdown',
-                          reply_markup=create_transactions_keyboard(expenses, 'expense'))
-    
-    await callback_query.answer()
-
-@dp.callback_query_handler(lambda c: c.data.startswith('select_expense_'))
-async def select_expense_for_edit(callback_query: types.CallbackQuery):
-    """Выбор расхода для редактирования"""
-    expense_id = int(callback_query.data[15:])
-    expense = get_transaction(expense_id)
-    
-    if not expense:
-        await bot.send_message(callback_query.from_user.id, "❌ Расход не найден")
-        await callback_query.answer()
-        return
-    
-    response = format_transaction((expense_id, *expense[2:7]), include_id=True)
-    response = "✏️ **Редактирование расхода:**\n\n" + response
-    
-    await bot.send_message(callback_query.from_user.id,
-                          response,
-                          parse_mode='Markdown',
-                          reply_markup=get_edit_transaction_keyboard(expense_id, 'expense'))
-    
-    await callback_query.answer()
-
-# РЕДАКТИРОВАНИЕ СУММЫ РАСХОДА
-@dp.callback_query_handler(lambda c: c.data.startswith('edit_amount_expense_'))
-async def edit_expense_amount(callback_query: types.CallbackQuery, state: FSMContext):
-    """Редактирование суммы расхода"""
-    expense_id = int(callback_query.data[20:])
-    await EditExpense.waiting_for_amount.set()
-    await state.update_data(expense_id=expense_id)
-    await bot.send_message(callback_query.from_user.id, "💵 Введите новую сумму расхода:")
-    await callback_query.answer()
-
-@dp.message_handler(state=EditExpense.waiting_for_amount)
-async def process_edit_expense_amount(message: types.Message, state: FSMContext):
-    """Обработка новой суммы расхода"""
-    try:
-        amount = float(message.text.replace(',', '.'))
-        if amount <= 0:
-            await message.answer("❌ Сумма должна быть больше 0")
-            return
-        
-        data = await state.get_data()
-        expense_id = data['expense_id']
-        
-        update_transaction(expense_id, amount=amount)
-        
-        await state.finish()
-        await message.answer(f"✅ Сумма расхода обновлена: {amount} руб.", 
-                           reply_markup=get_main_keyboard())
-    
-    except ValueError:
-        await message.answer("❌ Пожалуйста, введите корректную сумму")
-
-# РЕДАКТИРОВАНИЕ КАТЕГОРИИ РАСХОДА
-@dp.callback_query_handler(lambda c: c.data.startswith('edit_category_expense_'))
-async def edit_expense_category(callback_query: types.CallbackQuery, state: FSMContext):
-    """Редактирование категории расхода"""
-    expense_id = int(callback_query.data[23:])
-    await EditExpense.waiting_for_category.set()
-    await state.update_data(expense_id=expense_id)
-    await bot.send_message(callback_query.from_user.id,
-                         "📂 Выберите новую категорию:",
-                         reply_markup=get_expense_categories_keyboard())
-    await callback_query.answer()
-
-@dp.callback_query_handler(lambda c: c.data.startswith('expense_cat_'), state=EditExpense.waiting_for_category)
-async def process_edit_expense_category(callback_query: types.CallbackQuery, state: FSMContext):
-    """Обработка новой категории расхода"""
-    category = callback_query.data[11:]
-    data = await state.get_data()
-    expense_id = data['expense_id']
-    
-    update_transaction(expense_id, category=category)
-    
-    await state.finish()
-    await bot.send_message(callback_query.from_user.id,
-                          f"✅ Категория расхода обновлена: {category}",
-                          reply_markup=get_main_keyboard())
-    await callback_query.answer()
-
-# РЕДАКТИРОВАНИЕ ОПИСАНИЯ РАСХОДА
-@dp.callback_query_handler(lambda c: c.data.startswith('edit_desc_expense_'))
-async def edit_expense_description(callback_query: types.CallbackQuery, state: FSMContext):
-    """Редактирование описания расхода"""
-    expense_id = int(callback_query.data[20:])
-    await EditExpense.waiting_for_description.set()
-    await state.update_data(expense_id=expense_id)
-    await bot.send_message(callback_query.from_user.id,
-                          "📝 Введите новое описание (или '-' чтобы удалить описание):")
-    await callback_query.answer()
-
-@dp.message_handler(state=EditExpense.waiting_for_description)
-async def process_edit_expense_description(message: types.Message, state: FSMContext):
-    """Обработка нового описания расхода"""
-    data = await state.get_data()
-    expense_id = data['expense_id']
-    description = message.text if message.text != '-' else None
-    
-    update_transaction(expense_id, description=description)
-    
-    await state.finish()
-    response = "✅ Описание расхода удалено" if description is None else f"✅ Описание расхода обновлено: {description}"
-    await message.answer(response, reply_markup=get_main_keyboard())
-
-# УДАЛЕНИЕ РАСХОДА С ПОДТВЕРЖДЕНИЕМ
-@dp.callback_query_handler(lambda c: c.data.startswith('delete_confirm_expense_'))
-async def confirm_delete_expense(callback_query: types.CallbackQuery):
-    """Подтверждение удаления расхода"""
-    expense_id = int(callback_query.data[24:])
-    expense = get_transaction(expense_id)
-    
-    if not expense:
-        await bot.send_message(callback_query.from_user.id, "❌ Расход не найден")
-        await callback_query.answer()
-        return
-    
-    response = format_transaction((expense_id, *expense[2:7]), include_id=True)
-    response = "🗑️ **Подтверждение удаления расхода:**\n\n" + response + "\n\n❓ Вы уверены, что хотите удалить этот расход?"
-    
-    await bot.send_message(callback_query.from_user.id,
-                          response,
-                          parse_mode='Markdown',
-                          reply_markup=get_delete_confirmation_keyboard('expense', expense_id))
-    await callback_query.answer()
-
-@dp.callback_query_handler(lambda c: c.data.startswith('delete_expense_yes_'))
-async def delete_expense_yes(callback_query: types.CallbackQuery):
-    """Подтверждение удаления расхода"""
-    expense_id = int(callback_query.data[20:])
-    soft_delete_transaction(expense_id)
-    await bot.send_message(callback_query.from_user.id,
-                          "✅ Расход успешно удален",
-                          reply_markup=get_main_keyboard())
-    await callback_query.answer()
-
-@dp.callback_query_handler(lambda c: c.data.startswith('delete_expense_no_'))
-async def delete_expense_no(callback_query: types.CallbackQuery):
-    """Отмена удаления расхода"""
-    await bot.send_message(callback_query.from_user.id,
-                          "❌ Удаление отменено",
-                          reply_markup=get_main_keyboard())
-    await callback_query.answer()
-
-# ========== АНАЛОГИЧНЫЕ ОБРАБОТЧИКИ ДЛЯ ДОХОДОВ, ПЛАНОВ И ПОКУПОК ==========
-# (код аналогичный, меняются только названия функций и типы данных)
-
-# ========== ОБРАБОТЧИКИ ОБЩИХ ПЛАНОВ ==========
-
-@dp.callback_query_handler(lambda c: c.data == 'shared_plans')
-async def show_shared_plans_menu(callback_query: types.CallbackQuery):
-    """Меню общих планов"""
-    await bot.send_message(callback_query.from_user.id,
-                          "👥 **Управление общими планами:**",
-                          parse_mode='Markdown',
-                          reply_markup=get_shared_plans_keyboard())
-    await callback_query.answer()
-
-@dp.callback_query_handler(lambda c: c.data == 'show_shared_plans')
-async def show_shared_plans(callback_query: types.CallbackQuery):
-    """Показать общие планы"""
-    shared_plans = get_shared_plans()
-    
-    if not shared_plans:
-        await bot.send_message(callback_query.from_user.id,
-                              "📭 Нет общих планов")
-        return
-    
-    response = "👥 **Общие планы:**\n\n"
-    
-    for plan in shared_plans:
-        plan_id, user_id, title, description, plan_date, time, category, is_shared, *_ = plan[:9]
-        username = plan[12]  # full_name из join
-        time_str = f" в {time}" if time else ""
-        
-        response += f"📅 **{title}** ({username})\n"
-        response += f"   📅 {plan_date}{time_str}\n"
-        response += f"   🏷️ {category}\n"
-        
-        if description:
-            response += f"   📋 {description}\n"
-        
-        response += f"   🆔 ID: {plan_id}\n\n"
-    
-    await bot.send_message(callback_query.from_user.id,
-                          response,
-                          parse_mode='Markdown')
-    await callback_query.answer()
+    await message.answer("👫 **Общие финансы:**\n\n"
+                        "Выберите действие:", 
+                        parse_mode='Markdown',
+                        reply_markup=get_combined_stats_keyboard())
 
 # ========== ОБРАБОТЧИКИ ПОИСКА ==========
 
@@ -1056,16 +975,6 @@ async def show_search_menu(message: types.Message):
                         "Выберите тип поиска:",
                         parse_mode='Markdown',
                         reply_markup=get_search_keyboard())
-
-@dp.callback_query_handler(lambda c: c.data == 'search_expenses')
-async def search_expenses_start(callback_query: types.CallbackQuery):
-    """Начало поиска расходов"""
-    await bot.send_message(callback_query.from_user.id,
-                          "🔍 **Поиск расходов:**\n\n"
-                          "Выберите критерий поиска:",
-                          parse_mode='Markdown',
-                          reply_markup=get_search_filters_keyboard('expenses'))
-    await callback_query.answer()
 
 # ========== ОБРАБОТЧИКИ КНОПОК НАЗАД ==========
 
