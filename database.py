@@ -2,10 +2,8 @@ import sqlite3
 from datetime import datetime, date, timedelta
 from config import DB_PATH, MY_USER_ID, GIRLFRIEND_USER_ID
 
-# ========== ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ ==========
-
 def init_db():
-    """Инициализация базы данных"""
+    """Инициализация базы данных с ВСЕМИ полями"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
@@ -19,7 +17,7 @@ def init_db():
         )
     ''')
     
-    # Таблица транзакций (расходы/доходы)
+    # Таблица транзакций (расходы/доходы) - ВСЕ поля сразу
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,7 +34,7 @@ def init_db():
         )
     ''')
     
-    # Таблица планов
+    # Таблица планов - ВСЕ поля сразу
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS plans (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,7 +54,7 @@ def init_db():
         )
     ''')
     
-    # Таблица планируемых покупок
+    # Таблица планируемых покупок - ВСЕ поля сразу
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS planned_purchases (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,7 +74,7 @@ def init_db():
     
     conn.commit()
     conn.close()
-    print("✅ База данных инициализирована")
+    print("✅ База данных создана/инициализирована")
 
 # ========== ФУНКЦИИ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ ==========
 
@@ -91,15 +89,6 @@ def add_user(user_id, username, full_name):
     conn.commit()
     conn.close()
 
-def get_user(user_id):
-    """Получить пользователя"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))
-    result = cursor.fetchone()
-    conn.close()
-    return result
-
 # ========== ФУНКЦИИ ДЛЯ ТРАНЗАКЦИЙ ==========
 
 def add_transaction(user_id, trans_type, amount, category, description=None):
@@ -110,15 +99,16 @@ def add_transaction(user_id, trans_type, amount, category, description=None):
         INSERT INTO transactions (user_id, type, amount, category, description, date)
         VALUES (?, ?, ?, ?, ?, DATE('now'))
     ''', (user_id, trans_type, amount, category, description))
+    transaction_id = cursor.lastrowid
     conn.commit()
     conn.close()
-    return cursor.lastrowid
+    return transaction_id
 
 def get_transaction(transaction_id):
     """Получить конкретную транзакцию"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM transactions WHERE id = ?', (transaction_id,))
+    cursor.execute('SELECT * FROM transactions WHERE id = ? AND is_deleted = 0', (transaction_id,))
     result = cursor.fetchone()
     conn.close()
     return result
@@ -152,104 +142,68 @@ def update_transaction(transaction_id, amount=None, category=None, description=N
     conn.commit()
     conn.close()
 
-def soft_delete_transaction(transaction_id):
-    """Мягкое удаление транзакции"""
+def delete_transaction(transaction_id):
+    """Удалить транзакцию"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('''
-        UPDATE transactions 
-        SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP 
-        WHERE id = ?
-    ''', (transaction_id,))
+    cursor.execute('UPDATE transactions SET is_deleted = 1 WHERE id = ?', (transaction_id,))
     conn.commit()
     conn.close()
 
-def get_user_transactions(user_id, period='today', trans_type=None):
-    """Получить транзакции пользователя"""
+def get_recent_transactions(user_id, limit=5, trans_type=None):
+    """Получить последние транзакции"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    type_filter = f"AND type = '{trans_type}'" if trans_type else ""
+    
+    cursor.execute(f'''
+        SELECT id, type, amount, category, description, date,
+               strftime('%H:%M', created_at) as time
+        FROM transactions 
+        WHERE user_id = ? AND is_deleted = 0 {type_filter}
+        ORDER BY created_at DESC
+        LIMIT ?
+    ''', (user_id, limit))
+    
+    results = cursor.fetchall()
+    conn.close()
+    return results
+
+def get_user_transactions(user_id, period='month', trans_type=None):
+    """Получить транзакции пользователя за период"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     type_filter = f"AND type = '{trans_type}'" if trans_type else ""
     
     if period == 'today':
-        query = f"""
-            SELECT id, type, amount, category, description, 
+        cursor.execute(f'''
+            SELECT id, type, amount, category, description,
                    strftime('%H:%M', created_at) as time
             FROM transactions 
             WHERE user_id = ? AND date = DATE('now') 
             AND is_deleted = 0 {type_filter}
             ORDER BY created_at DESC
-        """
-        cursor.execute(query, (user_id,))
-    elif period == 'week':
-        query = f"""
-            SELECT id, type, amount, category, description, date,
-                   strftime('%H:%M', created_at) as time
-            FROM transactions 
-            WHERE user_id = ? AND date >= DATE('now', '-7 days') 
-            AND is_deleted = 0 {type_filter}
-            ORDER BY date DESC, created_at DESC
-        """
-        cursor.execute(query, (user_id,))
+        ''', (user_id,))
     elif period == 'month':
-        query = f"""
+        cursor.execute(f'''
             SELECT id, type, amount, category, description, date,
                    strftime('%H:%M', created_at) as time
             FROM transactions 
-            WHERE user_id = ? AND strftime('%Y-%m', date) = strftime('%Y-%m', 'now') 
+            WHERE user_id = ? AND strftime('%Y-%m', date) = strftime('%Y-%m', 'now')
             AND is_deleted = 0 {type_filter}
             ORDER BY date DESC, created_at DESC
-        """
-        cursor.execute(query, (user_id,))
-    elif period == 'all':
-        query = f"""
+        ''', (user_id,))
+    else:
+        cursor.execute(f'''
             SELECT id, type, amount, category, description, date,
                    strftime('%Y-%m-%d %H:%M', created_at) as datetime
             FROM transactions 
             WHERE user_id = ? AND is_deleted = 0 {type_filter}
             ORDER BY date DESC, created_at DESC
-            LIMIT 100
-        """
-        cursor.execute(query, (user_id,))
-    
-    results = cursor.fetchall()
-    conn.close()
-    return results
-
-def search_transactions(user_id, search_text=None, category=None, min_amount=None, max_amount=None):
-    """Поиск транзакций"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    conditions = ["user_id = ?", "is_deleted = 0"]
-    params = [user_id]
-    
-    if search_text:
-        conditions.append("(description LIKE ? OR category LIKE ?)")
-        params.extend([f'%{search_text}%', f'%{search_text}%'])
-    
-    if category:
-        conditions.append("category = ?")
-        params.append(category)
-    
-    if min_amount is not None:
-        conditions.append("amount >= ?")
-        params.append(min_amount)
-    
-    if max_amount is not None:
-        conditions.append("amount <= ?")
-        params.append(max_amount)
-    
-    where_clause = " AND ".join(conditions)
-    
-    cursor.execute(f'''
-        SELECT id, type, amount, category, description, date,
-               strftime('%H:%M', created_at) as time
-        FROM transactions 
-        WHERE {where_clause}
-        ORDER BY date DESC, created_at DESC
-        LIMIT 50
-    ''', params)
+            LIMIT 50
+        ''', (user_id,))
     
     results = cursor.fetchall()
     conn.close()
@@ -265,15 +219,16 @@ def add_plan(user_id, title, description, plan_date, time=None, category='лич
         INSERT INTO plans (user_id, title, description, date, time, category, is_shared)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     ''', (user_id, title, description, plan_date, time, category, int(is_shared)))
+    plan_id = cursor.lastrowid
     conn.commit()
     conn.close()
-    return cursor.lastrowid
+    return plan_id
 
 def get_plan(plan_id):
     """Получить конкретный план"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM plans WHERE id = ?', (plan_id,))
+    cursor.execute('SELECT * FROM plans WHERE id = ? AND is_deleted = 0', (plan_id,))
     result = cursor.fetchone()
     conn.close()
     return result
@@ -319,19 +274,15 @@ def update_plan(plan_id, title=None, description=None, date=None, time=None, cat
     conn.commit()
     conn.close()
 
-def soft_delete_plan(plan_id):
-    """Мягкое удаление плана"""
+def delete_plan(plan_id):
+    """Удалить план"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('''
-        UPDATE plans 
-        SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP 
-        WHERE id = ?
-    ''', (plan_id,))
+    cursor.execute('UPDATE plans SET is_deleted = 1 WHERE id = ?', (plan_id,))
     conn.commit()
     conn.close()
 
-def get_user_plans(user_id, target_date=None, include_shared=True):
+def get_user_plans(user_id, target_date=None):
     """Получить планы пользователя"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -339,79 +290,31 @@ def get_user_plans(user_id, target_date=None, include_shared=True):
     if not target_date:
         target_date = date.today().isoformat()
     
-    if include_shared:
-        query = '''
-            SELECT id, title, description, time, category, is_shared
-            FROM plans 
-            WHERE ((user_id = ? AND is_shared = 0) OR is_shared = 1)
-            AND date = ? 
-            AND is_deleted = 0
-            ORDER BY time NULLS FIRST, created_at
-        '''
-        cursor.execute(query, (user_id, target_date))
-    else:
-        query = '''
-            SELECT id, title, description, time, category, is_shared
-            FROM plans 
-            WHERE user_id = ? AND date = ? AND is_deleted = 0
-            ORDER BY time NULLS FIRST, created_at
-        '''
-        cursor.execute(query, (user_id, target_date))
+    cursor.execute('''
+        SELECT id, title, description, time, category, is_shared
+        FROM plans 
+        WHERE (user_id = ? OR is_shared = 1)
+        AND date = ? 
+        AND is_deleted = 0
+        ORDER BY time NULLS FIRST, created_at
+    ''', (user_id, target_date))
     
     results = cursor.fetchall()
     conn.close()
     return results
 
-def get_shared_plans():
-    """Получить все общие планы"""
+def get_recent_plans(user_id, limit=5):
+    """Получить последние планы"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     cursor.execute('''
-        SELECT p.*, u.full_name 
-        FROM plans p
-        JOIN users u ON p.user_id = u.id
-        WHERE p.is_shared = 1 AND p.is_deleted = 0
-        ORDER BY p.date, p.time NULLS FIRST
-    ''')
-    
-    results = cursor.fetchall()
-    conn.close()
-    return results
-
-def search_plans(user_id, search_text=None, category=None, date_from=None, date_to=None):
-    """Поиск планов"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    conditions = ["(user_id = ? OR is_shared = 1)", "is_deleted = 0"]
-    params = [user_id]
-    
-    if search_text:
-        conditions.append("(title LIKE ? OR description LIKE ?)")
-        params.extend([f'%{search_text}%', f'%{search_text}%'])
-    
-    if category:
-        conditions.append("category = ?")
-        params.append(category)
-    
-    if date_from:
-        conditions.append("date >= ?")
-        params.append(date_from)
-    
-    if date_to:
-        conditions.append("date <= ?")
-        params.append(date_to)
-    
-    where_clause = " AND ".join(conditions)
-    
-    cursor.execute(f'''
-        SELECT id, title, description, date, time, category, is_shared
+        SELECT id, title, date, time, category, is_shared
         FROM plans 
-        WHERE {where_clause}
-        ORDER BY date DESC, time NULLS FIRST
-        LIMIT 50
-    ''', params)
+        WHERE user_id = ? AND is_deleted = 0
+        ORDER BY date DESC, created_at DESC
+        LIMIT ?
+    ''', (user_id, limit))
     
     results = cursor.fetchall()
     conn.close()
@@ -427,15 +330,16 @@ def add_planned_purchase(user_id, item_name, estimated_cost, priority, target_da
         INSERT INTO planned_purchases (user_id, item_name, estimated_cost, priority, target_date, notes)
         VALUES (?, ?, ?, ?, ?, ?)
     ''', (user_id, item_name, estimated_cost, priority, target_date, notes))
+    purchase_id = cursor.lastrowid
     conn.commit()
     conn.close()
-    return cursor.lastrowid
+    return purchase_id
 
 def get_purchase(purchase_id):
     """Получить конкретную покупку"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM planned_purchases WHERE id = ?', (purchase_id,))
+    cursor.execute('SELECT * FROM planned_purchases WHERE id = ? AND is_deleted = 0', (purchase_id,))
     result = cursor.fetchone()
     conn.close()
     return result
@@ -482,15 +386,11 @@ def update_purchase(purchase_id, item_name=None, estimated_cost=None, priority=N
     conn.commit()
     conn.close()
 
-def soft_delete_purchase(purchase_id):
-    """Мягкое удаление покупки"""
+def delete_purchase(purchase_id):
+    """Удалить покупку"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('''
-        UPDATE planned_purchases 
-        SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP 
-        WHERE id = ?
-    ''', (purchase_id,))
+    cursor.execute('UPDATE planned_purchases SET is_deleted = 1 WHERE id = ?', (purchase_id,))
     conn.commit()
     conn.close()
 
@@ -516,45 +416,18 @@ def get_user_purchases(user_id, status='planned'):
     conn.close()
     return results
 
-def search_purchases(user_id, search_text=None, priority=None, min_cost=None, max_cost=None):
-    """Поиск покупок"""
+def get_recent_purchases(user_id, limit=5):
+    """Получить последние покупки"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    conditions = ["user_id = ?", "is_deleted = 0"]
-    params = [user_id]
-    
-    if search_text:
-        conditions.append("(item_name LIKE ? OR notes LIKE ?)")
-        params.extend([f'%{search_text}%', f'%{search_text}%'])
-    
-    if priority:
-        conditions.append("priority = ?")
-        params.append(priority)
-    
-    if min_cost is not None:
-        conditions.append("estimated_cost >= ?")
-        params.append(min_cost)
-    
-    if max_cost is not None:
-        conditions.append("estimated_cost <= ?")
-        params.append(max_cost)
-    
-    where_clause = " AND ".join(conditions)
-    
-    cursor.execute(f'''
-        SELECT id, item_name, estimated_cost, priority, target_date, notes, status
+    cursor.execute('''
+        SELECT id, item_name, estimated_cost, priority, target_date, notes
         FROM planned_purchases 
-        WHERE {where_clause}
-        ORDER BY 
-            CASE priority 
-                WHEN 'high' THEN 1
-                WHEN 'medium' THEN 2
-                WHEN 'low' THEN 3
-            END,
-            target_date NULLS LAST
-        LIMIT 50
-    ''', params)
+        WHERE user_id = ? AND is_deleted = 0
+        ORDER BY created_at DESC
+        LIMIT ?
+    ''', (user_id, limit))
     
     results = cursor.fetchall()
     conn.close()
@@ -608,6 +481,30 @@ def get_period_statistics(user_id, period='month'):
     conn.close()
     return result
 
+def get_daily_combined_expenses():
+    """Получить ежедневные расходы обоих пользователей"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT 
+            u.full_name,
+            t.category,
+            t.amount,
+            t.description
+        FROM transactions t
+        JOIN users u ON t.user_id = u.id
+        WHERE t.date = DATE('now') 
+        AND t.type = 'expense'
+        AND t.user_id IN (?, ?)
+        AND t.is_deleted = 0
+        ORDER BY u.full_name, t.created_at DESC
+    ''', (MY_USER_ID, GIRLFRIEND_USER_ID))
+    
+    results = cursor.fetchall()
+    conn.close()
+    return results
+
 def get_common_categories_statistics():
     """Статистика по общим категориям"""
     conn = sqlite3.connect(DB_PATH)
@@ -625,34 +522,6 @@ def get_common_categories_statistics():
         ORDER BY total_expense DESC
         LIMIT 10
     ''', (MY_USER_ID, GIRLFRIEND_USER_ID))
-    
-    results = cursor.fetchall()
-    conn.close()
-    return results
-
-def get_daily_combined_expenses(target_date=None):
-    """Получить ежедневные расходы обоих пользователей"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    if not target_date:
-        target_date = date.today().isoformat()
-    
-    cursor.execute('''
-        SELECT 
-            u.full_name,
-            t.category,
-            t.amount,
-            t.description,
-            t.created_at
-        FROM transactions t
-        JOIN users u ON t.user_id = u.id
-        WHERE t.date = ? 
-        AND t.type = 'expense'
-        AND t.user_id IN (?, ?)
-        AND t.is_deleted = 0
-        ORDER BY u.full_name, t.created_at DESC
-    ''', (target_date, MY_USER_ID, GIRLFRIEND_USER_ID))
     
     results = cursor.fetchall()
     conn.close()
