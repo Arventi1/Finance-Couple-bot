@@ -1384,6 +1384,1182 @@ async def back_to_search(callback_query: types.CallbackQuery):
                           reply_markup=get_search_keyboard())
     await callback_query.answer()
 
+# ========== ОБРАБОТЧИКИ УПРАВЛЕНИЯ ЗАПИСЯМИ ==========
+
+@dp.message_handler(lambda message: message.text == '🔧 Управление')
+async def show_management(message: types.Message):
+    """Показать меню управления"""
+    if not is_authorized_user(message.from_user.id):
+        return
+    
+    await message.answer("🔧 <b>Управление записями:</b>\n\n"
+                        "Выберите действие:", 
+                        parse_mode='HTML',
+                        reply_markup=get_management_keyboard())
+
+@dp.callback_query_handler(lambda c: c.data.startswith('manage_'))
+async def process_management(callback_query: types.CallbackQuery, state: FSMContext):
+    """Обработка меню управления"""
+    action = callback_query.data[7:]  # Убираем 'manage_'
+    user_id = callback_query.from_user.id
+    
+    if action == 'expense':
+        transactions = get_user_transactions(user_id, 'month', 'expense')
+        if not transactions:
+            await bot.send_message(user_id, "💸 У вас нет расходов за месяц для редактирования")
+            return
+        
+        await bot.send_message(user_id, 
+                              "📝 <b>Выберите расход для редактирования:</b>",
+                              parse_mode='HTML',
+                              reply_markup=create_transactions_keyboard(transactions, 'expense'))
+    
+    elif action == 'income':
+        transactions = get_user_transactions(user_id, 'month', 'income')
+        if not transactions:
+            await bot.send_message(user_id, "💵 У вас нет доходов за месяц для редактирования")
+            return
+        
+        await bot.send_message(user_id,
+                              "📝 <b>Выберите доход для редактирования:</b>",
+                              parse_mode='HTML',
+                              reply_markup=create_transactions_keyboard(transactions, 'income'))
+    
+    elif action == 'plan':
+        plans = get_user_plans(user_id)
+        if not plans:
+            await bot.send_message(user_id, "📅 У вас нет планов для редактирования")
+            return
+        
+        await bot.send_message(user_id,
+                              "📝 <b>Выберите план для редактирования:</b>",
+                              parse_mode='HTML',
+                              reply_markup=create_plans_keyboard(plans))
+    
+    elif action == 'purchase':
+        purchases = get_user_purchases(user_id)
+        if not purchases:
+            await bot.send_message(user_id, "🛍️ У вас нет покупок для редактирования")
+            return
+        
+        await bot.send_message(user_id,
+                              "📝 <b>Выберите покупку для редактирования:</b>",
+                              parse_mode='HTML',
+                              reply_markup=create_purchases_keyboard(purchases))
+    
+    await callback_query.answer()
+
+@dp.callback_query_handler(lambda c: c.data.startswith('select_'))
+async def select_for_edit(callback_query: types.CallbackQuery):
+    """Выбор записи для редактирования"""
+    data = callback_query.data[7:]  # Убираем 'select_'
+    user_id = callback_query.from_user.id
+    
+    if data.startswith('expense_'):
+        trans_id = int(data[8:])
+        transaction = get_transaction(trans_id)
+        
+        if transaction and transaction[1] == user_id:  # Проверка владельца
+            await bot.send_message(user_id,
+                                  f"✏️ <b>Редактирование расхода:</b>\n\n"
+                                  f"{format_transaction(transaction, include_id=True)}",
+                                  parse_mode='HTML',
+                                  reply_markup=get_edit_transaction_keyboard(trans_id, 'expense'))
+        else:
+            await bot.send_message(user_id, "❌ Запись не найдена или нет доступа")
+    
+    elif data.startswith('income_'):
+        trans_id = int(data[7:])
+        transaction = get_transaction(trans_id)
+        
+        if transaction and transaction[1] == user_id:
+            await bot.send_message(user_id,
+                                  f"✏️ <b>Редактирование дохода:</b>\n\n"
+                                  f"{format_transaction(transaction, include_id=True)}",
+                                  parse_mode='HTML',
+                                  reply_markup=get_edit_transaction_keyboard(trans_id, 'income'))
+        else:
+            await bot.send_message(user_id, "❌ Запись не найдена или нет доступа")
+    
+    elif data.startswith('plan_'):
+        plan_id = int(data[5:])
+        plan = get_plan(plan_id)
+        
+        if plan and plan[1] == user_id:  # plan[1] = user_id
+            await bot.send_message(user_id,
+                                  f"✏️ <b>Редактирование плана:</b>\n\n"
+                                  f"{format_plan(plan, include_id=True)}",
+                                  parse_mode='HTML',
+                                  reply_markup=get_edit_plan_keyboard(plan_id))
+        else:
+            await bot.send_message(user_id, "❌ План не найден или нет доступа")
+    
+    elif data.startswith('purchase_'):
+        purchase_id = int(data[9:])
+        purchase = get_purchase(purchase_id)
+        
+        if purchase and purchase[1] == user_id:  # purchase[1] = user_id
+            await bot.send_message(user_id,
+                                  f"✏️ <b>Редактирование покупки:</b>\n\n"
+                                  f"{format_purchase(purchase, include_id=True)}",
+                                  parse_mode='HTML',
+                                  reply_markup=get_edit_purchase_keyboard(purchase_id))
+        else:
+            await bot.send_message(user_id, "❌ Покупка не найдена или нет доступа")
+    
+    await callback_query.answer()
+
+# ========== ОБРАБОТЧИКИ РЕДАКТИРОВАНИЯ ==========
+
+@dp.callback_query_handler(lambda c: c.data.startswith('edit_'))
+async def edit_record(callback_query: types.CallbackQuery, state: FSMContext):
+    """Начало редактирования записи"""
+    data = callback_query.data[5:]  # Убираем 'edit_'
+    user_id = callback_query.from_user.id
+    
+    if data.startswith('amount_expense_'):
+        trans_id = int(data[15:])
+        await EditExpense.waiting_for_amount.set()
+        await state.update_data(trans_id=trans_id, trans_type='expense')
+        await bot.send_message(user_id, "💰 Введите новую сумму расхода:")
+    
+    elif data.startswith('category_expense_'):
+        trans_id = int(data[17:])
+        await EditExpense.waiting_for_category.set()
+        await state.update_data(trans_id=trans_id, trans_type='expense')
+        await bot.send_message(user_id, "📂 Выберите новую категорию:",
+                              reply_markup=get_expense_categories_keyboard())
+    
+    elif data.startswith('desc_expense_'):
+        trans_id = int(data[13:])
+        await EditExpense.waiting_for_description.set()
+        await state.update_data(trans_id=trans_id, trans_type='expense')
+        await bot.send_message(user_id, "📝 Введите новое описание (или '-' для удаления):")
+    
+    elif data.startswith('amount_income_'):
+        trans_id = int(data[14:])
+        await EditIncome.waiting_for_amount.set()
+        await state.update_data(trans_id=trans_id, trans_type='income')
+        await bot.send_message(user_id, "💰 Введите новую сумму дохода:")
+    
+    elif data.startswith('category_income_'):
+        trans_id = int(data[16:])
+        await EditIncome.waiting_for_category.set()
+        await state.update_data(trans_id=trans_id, trans_type='income')
+        await bot.send_message(user_id, "📂 Выберите новую категорию:",
+                              reply_markup=get_income_categories_keyboard())
+    
+    elif data.startswith('desc_income_'):
+        trans_id = int(data[12:])
+        await EditIncome.waiting_for_description.set()
+        await state.update_data(trans_id=trans_id, trans_type='income')
+        await bot.send_message(user_id, "📝 Введите новое описание (или '-' для удаления):")
+    
+    elif data.startswith('plan_title_'):
+        plan_id = int(data[11:])
+        await EditPlan.waiting_for_title.set()
+        await state.update_data(plan_id=plan_id)
+        await bot.send_message(user_id, "📝 Введите новое название плана:")
+    
+    elif data.startswith('plan_desc_'):
+        plan_id = int(data[10:])
+        await EditPlan.waiting_for_description.set()
+        await state.update_data(plan_id=plan_id)
+        await bot.send_message(user_id, "📋 Введите новое описание (или '-' для удаления):")
+    
+    elif data.startswith('plan_date_'):
+        plan_id = int(data[10:])
+        await EditPlan.waiting_for_date.set()
+        await state.update_data(plan_id=plan_id)
+        await bot.send_message(user_id, "📅 Введите новую дату (ГГГГ-ММ-ДД, 'сегодня', 'завтра'):")
+    
+    elif data.startswith('plan_time_'):
+        plan_id = int(data[10:])
+        await EditPlan.waiting_for_time.set()
+        await state.update_data(plan_id=plan_id)
+        await bot.send_message(user_id, "⏰ Введите новое время (ЧЧ:ММ или '-'):")
+    
+    elif data.startswith('plan_cat_'):
+        plan_id = int(data[9:])
+        await EditPlan.waiting_for_category.set()
+        await state.update_data(plan_id=plan_id)
+        await bot.send_message(user_id, "🏷️ Выберите новую категорию:",
+                              reply_markup=get_plan_categories_keyboard())
+    
+    elif data.startswith('purchase_name_'):
+        purchase_id = int(data[14:])
+        await EditPurchase.waiting_for_name.set()
+        await state.update_data(purchase_id=purchase_id)
+        await bot.send_message(user_id, "🛍️ Введите новое название покупки:")
+    
+    elif data.startswith('purchase_cost_'):
+        purchase_id = int(data[14:])
+        await EditPurchase.waiting_for_cost.set()
+        await state.update_data(purchase_id=purchase_id)
+        await bot.send_message(user_id, "💰 Введите новую стоимость:")
+    
+    elif data.startswith('purchase_priority_'):
+        purchase_id = int(data[18:])
+        await EditPurchase.waiting_for_priority.set()
+        await state.update_data(purchase_id=purchase_id)
+        await bot.send_message(user_id, "🎯 Выберите новый приоритет:",
+                              reply_markup=get_priority_keyboard())
+    
+    elif data.startswith('purchase_date_'):
+        purchase_id = int(data[14:])
+        await EditPurchase.waiting_for_date.set()
+        await state.update_data(purchase_id=purchase_id)
+        await bot.send_message(user_id, "📅 Введите новую дату (ГГГГ-ММ-ДД или '-'):")
+    
+    elif data.startswith('purchase_notes_'):
+        purchase_id = int(data[15:])
+        await EditPurchase.waiting_for_notes.set()
+        await state.update_data(purchase_id=purchase_id)
+        await bot.send_message(user_id, "📝 Введите новые заметки (или '-' для удаления):")
+    
+    await callback_query.answer()
+
+# ========== ОБРАБОТЧИКИ УДАЛЕНИЯ ==========
+
+@dp.callback_query_handler(lambda c: c.data.startswith('delete_'))
+async def delete_record(callback_query: types.CallbackQuery):
+    """Удаление записи"""
+    data = callback_query.data[7:]  # Убираем 'delete_'
+    user_id = callback_query.from_user.id
+    
+    if data.startswith('confirm_expense_'):
+        trans_id = int(data[16:])
+        transaction = get_transaction(trans_id)
+        
+        if transaction and transaction[1] == user_id:
+            await bot.send_message(user_id,
+                                  f"🗑️ <b>Подтвердите удаление расхода:</b>\n\n"
+                                  f"{format_transaction(transaction, include_id=True)}\n\n"
+                                  f"Вы уверены, что хотите удалить эту запись?",
+                                  parse_mode='HTML',
+                                  reply_markup=get_delete_confirmation_keyboard('expense', trans_id))
+        else:
+            await bot.send_message(user_id, "❌ Запись не найдена или нет доступа")
+    
+    elif data.startswith('confirm_income_'):
+        trans_id = int(data[15:])
+        transaction = get_transaction(trans_id)
+        
+        if transaction and transaction[1] == user_id:
+            await bot.send_message(user_id,
+                                  f"🗑️ <b>Подтвердите удаление дохода:</b>\n\n"
+                                  f"{format_transaction(transaction, include_id=True)}\n\n"
+                                  f"Вы уверены, что хотите удалить эту запись?",
+                                  parse_mode='HTML',
+                                  reply_markup=get_delete_confirmation_keyboard('income', trans_id))
+        else:
+            await bot.send_message(user_id, "❌ Запись не найдена или нет доступа")
+    
+    elif data.startswith('plan_confirm_'):
+        plan_id = int(data[13:])
+        plan = get_plan(plan_id)
+        
+        if plan and plan[1] == user_id:
+            await bot.send_message(user_id,
+                                  f"🗑️ <b>Подтвердите удаление плана:</b>\n\n"
+                                  f"{format_plan(plan, include_id=True)}\n\n"
+                                  f"Вы уверены, что хотите удалить этот план?",
+                                  parse_mode='HTML',
+                                  reply_markup=get_delete_confirmation_keyboard('plan', plan_id))
+        else:
+            await bot.send_message(user_id, "❌ План не найден или нет доступа")
+    
+    elif data.startswith('purchase_confirm_'):
+        purchase_id = int(data[17:])
+        purchase = get_purchase(purchase_id)
+        
+        if purchase and purchase[1] == user_id:
+            await bot.send_message(user_id,
+                                  f"🗑️ <b>Подтвердите удаление покупки:</b>\n\n"
+                                  f"{format_purchase(purchase, include_id=True)}\n\n"
+                                  f"Вы уверены, что хотите удалить эту покупку?",
+                                  parse_mode='HTML',
+                                  reply_markup=get_delete_confirmation_keyboard('purchase', purchase_id))
+        else:
+            await bot.send_message(user_id, "❌ Покупка не найдена или нет доступа")
+    
+    await callback_query.answer()
+
+@dp.callback_query_handler(lambda c: c.data.startswith('delete_expense_yes_'))
+async def confirm_delete_expense(callback_query: types.CallbackQuery):
+    """Подтверждение удаления расхода"""
+    trans_id = int(callback_query.data[20:])
+    delete_transaction(trans_id)
+    await bot.send_message(callback_query.from_user.id,
+                          "✅ Расход успешно удален!",
+                          reply_markup=get_main_keyboard())
+    await callback_query.answer()
+
+@dp.callback_query_handler(lambda c: c.data.startswith('delete_expense_no_'))
+async def cancel_delete_expense(callback_query: types.CallbackQuery):
+    """Отмена удаления расхода"""
+    await bot.send_message(callback_query.from_user.id,
+                          "❌ Удаление расхода отменено",
+                          reply_markup=get_main_keyboard())
+    await callback_query.answer()
+
+@dp.callback_query_handler(lambda c: c.data.startswith('delete_income_yes_'))
+async def confirm_delete_income(callback_query: types.CallbackQuery):
+    """Подтверждение удаления дохода"""
+    trans_id = int(callback_query.data[19:])
+    delete_transaction(trans_id)
+    await bot.send_message(callback_query.from_user.id,
+                          "✅ Доход успешно удален!",
+                          reply_markup=get_main_keyboard())
+    await callback_query.answer()
+
+@dp.callback_query_handler(lambda c: c.data.startswith('delete_income_no_'))
+async def cancel_delete_income(callback_query: types.CallbackQuery):
+    """Отмена удаления дохода"""
+    await bot.send_message(callback_query.from_user.id,
+                          "❌ Удаление дохода отменено",
+                          reply_markup=get_main_keyboard())
+    await callback_query.answer()
+
+@dp.callback_query_handler(lambda c: c.data.startswith('delete_plan_yes_'))
+async def confirm_delete_plan(callback_query: types.CallbackQuery):
+    """Подтверждение удаления плана"""
+    plan_id = int(callback_query.data[17:])
+    delete_plan(plan_id)
+    await bot.send_message(callback_query.from_user.id,
+                          "✅ План успешно удален!",
+                          reply_markup=get_main_keyboard())
+    await callback_query.answer()
+
+@dp.callback_query_handler(lambda c: c.data.startswith('delete_plan_no_'))
+async def cancel_delete_plan(callback_query: types.CallbackQuery):
+    """Отмена удаления плана"""
+    await bot.send_message(callback_query.from_user.id,
+                          "❌ Удаление плана отменено",
+                          reply_markup=get_main_keyboard())
+    await callback_query.answer()
+
+@dp.callback_query_handler(lambda c: c.data.startswith('delete_purchase_yes_'))
+async def confirm_delete_purchase(callback_query: types.CallbackQuery):
+    """Подтверждение удаления покупки"""
+    purchase_id = int(callback_query.data[21:])
+    delete_purchase(purchase_id)
+    await bot.send_message(callback_query.from_user.id,
+                          "✅ Покупка успешно удалена!",
+                          reply_markup=get_main_keyboard())
+    await callback_query.answer()
+
+@dp.callback_query_handler(lambda c: c.data.startswith('delete_purchase_no_'))
+async def cancel_delete_purchase(callback_query: types.CallbackQuery):
+    """Отмена удаления покупки"""
+    await bot.send_message(callback_query.from_user.id,
+                          "❌ Удаление покупки отменено",
+                          reply_markup=get_main_keyboard())
+    await callback_query.answer()
+
+# ========== ОБРАБОТЧИКИ ДЛЯ ПОКУПОК ==========
+
+@dp.callback_query_handler(lambda c: c.data.startswith('purchase_done_'))
+async def mark_purchase_done(callback_query: types.CallbackQuery):
+    """Отметить покупку как купленную"""
+    purchase_id = int(callback_query.data[14:])
+    purchase = get_purchase(purchase_id)
+    
+    if purchase and purchase[1] == callback_query.from_user.id:
+        update_purchase(purchase_id, status='bought')
+        await bot.send_message(callback_query.from_user.id,
+                              "✅ Покупка отмечена как купленная!",
+                              reply_markup=get_main_keyboard())
+    else:
+        await bot.send_message(callback_query.from_user.id,
+                              "❌ Покупка не найдена или нет доступа")
+    
+    await callback_query.answer()
+
+@dp.callback_query_handler(lambda c: c.data.startswith('toggle_shared_'))
+async def toggle_shared_plan(callback_query: types.CallbackQuery):
+    """Переключение общего статуса плана"""
+    plan_id = int(callback_query.data[14:])
+    plan = get_plan(plan_id)
+    
+    if plan and plan[1] == callback_query.from_user.id:
+        current_shared = bool(plan[7])  # plan[7] = is_shared
+        new_shared = not current_shared
+        
+        update_plan(plan_id, is_shared=new_shared)
+        
+        status = "общим" if new_shared else "личным"
+        await bot.send_message(callback_query.from_user.id,
+                              f"✅ План теперь {status}!",
+                              reply_markup=get_main_keyboard())
+    else:
+        await bot.send_message(callback_query.from_user.id,
+                              "❌ План не найден или нет доступа")
+    
+    await callback_query.answer()
+
+# ========== ОБРАБОТЧИКИ ОБЩИХ ПЛАНОВ ==========
+
+@dp.callback_query_handler(lambda c: c.data == 'shared_plans')
+async def show_shared_plans_menu(callback_query: types.CallbackQuery):
+    """Меню общих планов"""
+    await bot.send_message(callback_query.from_user.id,
+                          "👥 <b>Общие планы:</b>\n\n"
+                          "Выберите действие:",
+                          parse_mode='HTML',
+                          reply_markup=get_shared_plans_keyboard())
+    await callback_query.answer()
+
+@dp.callback_query_handler(lambda c: c.data == 'show_shared_plans')
+async def show_all_shared_plans(callback_query: types.CallbackQuery):
+    """Показать все общие планы"""
+    shared_plans = get_shared_plans()
+    
+    if not shared_plans:
+        await bot.send_message(callback_query.from_user.id,
+                              "📅 Нет общих планов",
+                              reply_markup=get_shared_plans_keyboard())
+        return
+    
+    response = "👥 <b>Все общие планы:</b>\n\n"
+    current_date = None
+    
+    for plan in shared_plans:
+        if len(plan) >= 14:
+            plan_date = plan[4]  # date
+            title = plan[2]      # title
+            description = plan[3] # description
+            time = plan[5]       # time
+            category = plan[6]   # category
+            username = plan[13] or plan[12]  # full_name или username
+            
+            if plan_date != current_date:
+                current_date = plan_date
+                response += f"\n<b>📅 {plan_date}:</b>\n"
+            
+            time_str = f" в {time}" if time else ""
+            response += f"  • <b>{html.escape(title)}</b>{time_str}\n"
+            response += f"    👤 {username} | 🏷️ {html.escape(category)}\n"
+            
+            if description:
+                desc_short = description[:50] + "..." if len(description) > 50 else description
+                response += f"    📝 {html.escape(desc_short)}\n"
+            
+            response += "\n"
+    
+    await bot.send_message(callback_query.from_user.id, response, parse_mode='HTML')
+    await callback_query.answer()
+
+@dp.callback_query_handler(lambda c: c.data == 'create_shared_plan')
+async def create_shared_plan_start(callback_query: types.CallbackQuery):
+    """Создание общего плана"""
+    await AddPlan.waiting_for_title.set()
+    await bot.send_message(callback_query.from_user.id,
+                          "📝 Введите название общего плана:\n\n"
+                          "Для отмены отправьте 'отмена' или 'cancel'")
+    await callback_query.answer()
+
+@dp.callback_query_handler(lambda c: c.data == 'show_personal_plans')
+async def show_personal_plans(callback_query: types.CallbackQuery):
+    """Показать личные планы"""
+    plans = get_user_plans(callback_query.from_user.id)
+    
+    if not plans:
+        await bot.send_message(callback_query.from_user.id,
+                              "📅 У вас нет личных планов",
+                              reply_markup=get_shared_plans_keyboard())
+        return
+    
+    response = "📅 <b>Ваши личные планы:</b>\n\n"
+    
+    for plan in plans:
+        response += format_plan(plan, include_id=True) + "\n"
+    
+    await bot.send_message(callback_query.from_user.id, response, parse_mode='HTML')
+    await callback_query.answer()
+
+# ========== ОБРАБОТЧИКИ ПОИСКА ==========
+
+@dp.message_handler(lambda message: message.text == '🔍 Поиск')
+async def show_search_menu(message: types.Message):
+    """Показать меню поиска"""
+    if not is_authorized_user(message.from_user.id):
+        return
+    
+    await message.answer("🔍 <b>Поиск записей:</b>\n\n"
+                        "Выберите тип поиска:",
+                        parse_mode='HTML',
+                        reply_markup=get_search_keyboard())
+
+@dp.callback_query_handler(lambda c: c.data.startswith('search_'))
+async def process_search_menu(callback_query: types.CallbackQuery, state: FSMContext):
+    """Обработка меню поиска"""
+    action = callback_query.data[7:]  # Убираем 'search_'
+    user_id = callback_query.from_user.id
+    
+    if action == 'expenses':
+        await bot.send_message(user_id,
+                              "🔍 <b>Поиск расходов:</b>\n\n"
+                              "Выберите тип поиска:",
+                              parse_mode='HTML',
+                              reply_markup=get_search_filters_keyboard('expenses'))
+    
+    elif action == 'incomes':
+        await bot.send_message(user_id,
+                              "🔍 <b>Поиск доходов:</b>\n\n"
+                              "Выберите тип поиска:",
+                              parse_mode='HTML',
+                              reply_markup=get_search_filters_keyboard('incomes'))
+    
+    elif action == 'plans':
+        await bot.send_message(user_id,
+                              "🔍 <b>Поиск планов:</b>\n\n"
+                              "Выберите тип поиска:",
+                              parse_mode='HTML',
+                              reply_markup=get_search_filters_keyboard('plans'))
+    
+    elif action == 'purchases':
+        await bot.send_message(user_id,
+                              "🔍 <b>Поиск покупок:</b>\n\n"
+                              "Выберите тип поиска:",
+                              parse_mode='HTML',
+                              reply_markup=get_search_filters_keyboard('purchases'))
+    
+    elif action == 'show_recent':
+        # Показать последние записи всех типов
+        await show_recent_all(user_id)
+    
+    await callback_query.answer()
+
+async def show_recent_all(user_id):
+    """Показать последние записи всех типов"""
+    # Последние 5 расходов
+    recent_expenses = get_user_transactions(user_id, 'all', 'expense')[:5]
+    # Последние 5 доходов
+    recent_incomes = get_user_transactions(user_id, 'all', 'income')[:5]
+    # Последние 5 планов
+    recent_plans = get_user_plans(user_id)
+    # Последние 5 покупок
+    recent_purchases = get_user_purchases(user_id)
+    
+    response = "📋 <b>Последние записи:</b>\n\n"
+    
+    if recent_expenses:
+        response += "💸 <b>Последние расходы:</b>\n"
+        for trans in recent_expenses[:3]:  # Показываем только 3
+            if len(trans) >= 6:
+                amount = trans[2]
+                category = trans[3]
+                description = trans[4]
+                date_str = trans[5] if len(trans) > 5 else "сегодня"
+                
+                desc = f" - {description}" if description else ""
+                response += f"  • {amount:.2f} руб. - {category}{desc} ({date_str})\n"
+        response += "\n"
+    
+    if recent_incomes:
+        response += "💵 <b>Последние доходы:</b>\n"
+        for trans in recent_incomes[:3]:
+            if len(trans) >= 6:
+                amount = trans[2]
+                category = trans[3]
+                description = trans[4]
+                date_str = trans[5] if len(trans) > 5 else "сегодня"
+                
+                desc = f" - {description}" if description else ""
+                response += f"  • {amount:.2f} руб. - {category}{desc} ({date_str})\n"
+        response += "\n"
+    
+    if recent_plans:
+        response += "📅 <b>Ближайшие планы:</b>\n"
+        for plan in recent_plans[:3]:
+            if len(plan) >= 7:
+                title = plan[1]
+                date = plan[3]
+                time = plan[4]
+                time_str = f" в {time}" if time else ""
+                response += f"  • {title} ({date}{time_str})\n"
+        response += "\n"
+    
+    if recent_purchases:
+        response += "🛍️ <b>Планируемые покупки:</b>\n"
+        for purchase in recent_purchases[:3]:
+            if len(purchase) >= 7:
+                item_name = purchase[1]
+                cost = purchase[2]
+                priority = purchase[3]
+                emoji = {'high': '🔴', 'medium': '🟡', 'low': '🟢'}[priority]
+                response += f"  • {emoji} {item_name} - {cost:.2f} руб.\n"
+    
+    await bot.send_message(user_id, response, parse_mode='HTML')
+
+# ========== ПОИСК РАСХОДОВ/ДОХОДОВ ==========
+
+@dp.callback_query_handler(lambda c: c.data.startswith('search_expenses_by_') or c.data.startswith('search_incomes_by_'))
+async def start_search_transactions(callback_query: types.CallbackQuery, state: FSMContext):
+    """Начало поиска транзакций"""
+    data = callback_query.data[7:]  # Убираем 'search_'
+    user_id = callback_query.from_user.id
+    
+    # Определяем тип транзакции
+    if data.startswith('expenses_by_'):
+        trans_type = 'expense'
+        search_type = data[12:]  # Убираем 'expenses_by_'
+    else:
+        trans_type = 'income'
+        search_type = data[11:]  # Убираем 'incomes_by_'
+    
+    await state.update_data(trans_type=trans_type, search_type=search_type)
+    
+    if search_type == 'desc':
+        await SearchStates.waiting_for_description.set()
+        await bot.send_message(user_id, "📝 Введите текст для поиска в описании:")
+    
+    elif search_type == 'cat':
+        await SearchStates.waiting_for_category.set()
+        if trans_type == 'expense':
+            await bot.send_message(user_id, "📂 Выберите категорию для поиска:",
+                                  reply_markup=get_expense_categories_keyboard())
+        else:
+            await bot.send_message(user_id, "📂 Выберите категорию для поиска:",
+                                  reply_markup=get_income_categories_keyboard())
+    
+    elif search_type == 'amount':
+        await SearchStates.waiting_for_min_amount.set()
+        await bot.send_message(user_id, "💰 Введите минимальную сумму (или '-' для пропуска):")
+    
+    elif search_type == 'date':
+        await SearchStates.waiting_for_date.set()
+        await bot.send_message(user_id, "📅 Введите дату для поиска (ГГГГ-ММ-ДД, 'сегодня', 'неделя', 'месяц'):")
+    
+    await callback_query.answer()
+
+@dp.message_handler(state=SearchStates.waiting_for_description)
+async def search_by_description(message: types.Message, state: FSMContext):
+    """Поиск по описанию"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Поиск отменен", reply_markup=get_main_keyboard())
+        return
+    
+    data = await state.get_data()
+    trans_type = data.get('trans_type')
+    
+    results = search_transactions(
+        user_id=message.from_user.id,
+        trans_type=trans_type,
+        description=text
+    )
+    
+    await show_search_results(message, results, f"результатов по описанию '{text}'", trans_type)
+    await state.finish()
+
+@dp.callback_query_handler(lambda c: c.data.startswith('expense_cat_') or c.data.startswith('income_cat_'), 
+                          state=SearchStates.waiting_for_category)
+async def search_by_category_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    """Поиск по категории (callback)"""
+    data = await state.get_data()
+    trans_type = data.get('trans_type')
+    
+    if trans_type == 'expense':
+        category = callback_query.data[11:]  # Убираем 'expense_cat_'
+    else:
+        category = callback_query.data[10:]  # Убираем 'income_cat_'
+    
+    results = search_transactions(
+        user_id=callback_query.from_user.id,
+        trans_type=trans_type,
+        category=category
+    )
+    
+    await show_search_results_chat(callback_query.from_user.id, results, 
+                                 f"результатов в категории '{category}'", trans_type)
+    await state.finish()
+    await callback_query.answer()
+
+@dp.message_handler(state=SearchStates.waiting_for_category)
+async def search_by_category_message(message: types.Message, state: FSMContext):
+    """Обработка текстового ввода для категории"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Поиск отменен", reply_markup=get_main_keyboard())
+        return
+    
+    data = await state.get_data()
+    trans_type = data.get('trans_type')
+    
+    results = search_transactions(
+        user_id=message.from_user.id,
+        trans_type=trans_type,
+        category=text
+    )
+    
+    await show_search_results(message, results, f"результатов в категории '{text}'", trans_type)
+    await state.finish()
+
+@dp.message_handler(state=SearchStates.waiting_for_min_amount)
+async def search_by_min_amount(message: types.Message, state: FSMContext):
+    """Поиск по минимальной сумме"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Поиск отменен", reply_markup=get_main_keyboard())
+        return
+    
+    data = await state.get_data()
+    
+    if text == '-':
+        min_amount = None
+    else:
+        try:
+            min_amount = float(text.replace(',', '.'))
+        except ValueError:
+            await message.answer("❌ Неверный формат суммы. Введите число или '-'")
+            return
+    
+    await state.update_data(min_amount=min_amount)
+    await SearchStates.waiting_for_max_amount.set()
+    await message.answer("💰 Введите максимальную сумму (или '-' для пропуска):")
+
+@dp.message_handler(state=SearchStates.waiting_for_max_amount)
+async def search_by_max_amount(message: types.Message, state: FSMContext):
+    """Поиск по максимальной сумме"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Поиск отменен", reply_markup=get_main_keyboard())
+        return
+    
+    data = await state.get_data()
+    trans_type = data.get('trans_type')
+    min_amount = data.get('min_amount')
+    
+    if text == '-':
+        max_amount = None
+    else:
+        try:
+            max_amount = float(text.replace(',', '.'))
+        except ValueError:
+            await message.answer("❌ Неверный формат суммы. Введите число или '-'")
+            return
+    
+    results = search_transactions(
+        user_id=message.from_user.id,
+        trans_type=trans_type,
+        min_amount=min_amount,
+        max_amount=max_amount
+    )
+    
+    range_text = ""
+    if min_amount is not None:
+        range_text += f"от {min_amount} руб. "
+    if max_amount is not None:
+        range_text += f"до {max_amount} руб."
+    
+    await show_search_results(message, results, f"результатов в диапазоне {range_text}", trans_type)
+    await state.finish()
+
+@dp.message_handler(state=SearchStates.waiting_for_date)
+async def search_by_date(message: types.Message, state: FSMContext):
+    """Поиск по дате"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Поиск отменен", reply_markup=get_main_keyboard())
+        return
+    
+    data = await state.get_data()
+    trans_type = data.get('trans_type')
+    
+    results = search_transactions(
+        user_id=message.from_user.id,
+        trans_type=trans_type,
+        date_filter=text
+    )
+    
+    await show_search_results(message, results, f"результатов за '{text}'", trans_type)
+    await state.finish()
+
+# ========== ПОИСК ПЛАНОВ ==========
+
+@dp.callback_query_handler(lambda c: c.data.startswith('search_plans_'))
+async def start_search_plans(callback_query: types.CallbackQuery, state: FSMContext):
+    """Начало поиска планов"""
+    search_type = callback_query.data[13:]  # Убираем 'search_plans_'
+    user_id = callback_query.from_user.id
+    
+    await state.update_data(search_type=search_type)
+    
+    if search_type == 'by_text':
+        await SearchPlanStates.waiting_for_text.set()
+        await bot.send_message(user_id, "📝 Введите текст для поиска в названии или описании:")
+    
+    elif search_type == 'by_cat':
+        await SearchPlanStates.waiting_for_category.set()
+        await bot.send_message(user_id, "🏷️ Выберите категорию для поиска:",
+                              reply_markup=get_plan_categories_keyboard())
+    
+    elif search_type == 'by_date':
+        await SearchPlanStates.waiting_for_date_from.set()
+        await bot.send_message(user_id, "📅 Введите начальную дату (ГГГГ-ММ-ДД или '-'):")
+    
+    elif search_type == 'shared':
+        # Поиск только общих планов
+        results = search_plans(
+            user_id=user_id,
+            is_shared=True
+        )
+        await show_plan_search_results(user_id, results, "общих планов")
+    
+    await callback_query.answer()
+
+@dp.message_handler(state=SearchPlanStates.waiting_for_text)
+async def search_plans_by_text(message: types.Message, state: FSMContext):
+    """Поиск планов по тексту"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Поиск отменен", reply_markup=get_main_keyboard())
+        return
+    
+    results = search_plans(
+        user_id=message.from_user.id,
+        search_text=text
+    )
+    
+    await show_plan_search_results(message.from_user.id, results, f"результатов по тексту '{text}'")
+    await state.finish()
+
+@dp.callback_query_handler(lambda c: c.data.startswith('plan_cat_'), state=SearchPlanStates.waiting_for_category)
+async def search_plans_by_category_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    """Поиск планов по категории (callback)"""
+    category = callback_query.data[9:]  # Убираем 'plan_cat_'
+    
+    results = search_plans(
+        user_id=callback_query.from_user.id,
+        category=category
+    )
+    
+    await show_plan_search_results_chat(callback_query.from_user.id, results, 
+                                       f"результатов в категории '{category}'")
+    await state.finish()
+    await callback_query.answer()
+
+@dp.message_handler(state=SearchPlanStates.waiting_for_category)
+async def search_plans_by_category_message(message: types.Message, state: FSMContext):
+    """Поиск планов по категории (текст)"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Поиск отменен", reply_markup=get_main_keyboard())
+        return
+    
+    results = search_plans(
+        user_id=message.from_user.id,
+        category=text
+    )
+    
+    await show_plan_search_results(message.from_user.id, results, f"результатов в категории '{text}'")
+    await state.finish()
+
+@dp.message_handler(state=SearchPlanStates.waiting_for_date_from)
+async def search_plans_by_date_from(message: types.Message, state: FSMContext):
+    """Поиск планов по начальной дате"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Поиск отменен", reply_markup=get_main_keyboard())
+        return
+    
+    if text == '-':
+        date_from = None
+    else:
+        date_from = text
+    
+    await state.update_data(date_from=date_from)
+    await SearchPlanStates.waiting_for_date_to.set()
+    await message.answer("📅 Введите конечную дату (ГГГГ-ММ-ДД или '-'):")
+
+@dp.message_handler(state=SearchPlanStates.waiting_for_date_to)
+async def search_plans_by_date_to(message: types.Message, state: FSMContext):
+    """Поиск планов по конечной дате"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Поиск отменен", reply_markup=get_main_keyboard())
+        return
+    
+    data = await state.get_data()
+    date_from = data.get('date_from')
+    
+    if text == '-':
+        date_to = None
+    else:
+        date_to = text
+    
+    results = search_plans(
+        user_id=message.from_user.id,
+        date_from=date_from,
+        date_to=date_to
+    )
+    
+    date_range = ""
+    if date_from:
+        date_range += f"с {date_from} "
+    if date_to:
+        date_range += f"по {date_to}"
+    
+    await show_plan_search_results(message.from_user.id, results, f"результатов за период {date_range}")
+    await state.finish()
+
+# ========== ПОИСК ПОКУПОК ==========
+
+@dp.callback_query_handler(lambda c: c.data.startswith('search_purchases_'))
+async def start_search_purchases(callback_query: types.CallbackQuery, state: FSMContext):
+    """Начало поиска покупок"""
+    search_type = callback_query.data[17:]  # Убираем 'search_purchases_'
+    user_id = callback_query.from_user.id
+    
+    await state.update_data(search_type=search_type)
+    
+    if search_type == 'by_text':
+        await SearchPurchaseStates.waiting_for_text.set()
+        await bot.send_message(user_id, "📝 Введите текст для поиска в названии или заметках:")
+    
+    elif search_type == 'by_priority':
+        await SearchPurchaseStates.waiting_for_priority.set()
+        await bot.send_message(user_id, "🎯 Выберите приоритет для поиска:",
+                              reply_markup=get_priority_keyboard())
+    
+    elif search_type == 'by_cost':
+        await SearchPurchaseStates.waiting_for_min_cost.set()
+        await bot.send_message(user_id, "💰 Введите минимальную стоимость (или '-' для пропуска):")
+    
+    elif search_type == 'by_status':
+        # Поиск по статусу
+        keyboard = InlineKeyboardMarkup(row_width=2)
+        keyboard.add(
+            InlineKeyboardButton('✅ Купленные', callback_data='search_status_bought'),
+            InlineKeyboardButton('📋 Планируемые', callback_data='search_status_planned')
+        )
+        keyboard.add(InlineKeyboardButton('🔙 Назад', callback_data='back_to_search'))
+        
+        await bot.send_message(user_id, "📋 Выберите статус покупок:", reply_markup=keyboard)
+    
+    await callback_query.answer()
+
+@dp.message_handler(state=SearchPurchaseStates.waiting_for_text)
+async def search_purchases_by_text(message: types.Message, state: FSMContext):
+    """Поиск покупок по тексту"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Поиск отменен", reply_markup=get_main_keyboard())
+        return
+    
+    results = search_purchases(
+        user_id=message.from_user.id,
+        search_text=text
+    )
+    
+    await show_purchase_search_results(message.from_user.id, results, f"результатов по тексту '{text}'")
+    await state.finish()
+
+@dp.callback_query_handler(lambda c: c.data.startswith('priority_'), state=SearchPurchaseStates.waiting_for_priority)
+async def search_purchases_by_priority_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    """Поиск покупок по приоритету (callback)"""
+    priority = callback_query.data[9:]  # Убираем 'priority_'
+    
+    results = search_purchases(
+        user_id=callback_query.from_user.id,
+        priority=priority
+    )
+    
+    await show_purchase_search_results_chat(callback_query.from_user.id, results, 
+                                           f"результатов с приоритетом '{priority}'")
+    await state.finish()
+    await callback_query.answer()
+
+@dp.callback_query_handler(lambda c: c.data.startswith('search_status_'))
+async def search_purchases_by_status(callback_query: types.CallbackQuery):
+    """Поиск покупок по статусу"""
+    status = callback_query.data[13:]  # Убираем 'search_status_'
+    
+    results = search_purchases(
+        user_id=callback_query.from_user.id,
+        status=status
+    )
+    
+    status_text = 'купленные' if status == 'bought' else 'планируемые'
+    await show_purchase_search_results_chat(callback_query.from_user.id, results, 
+                                           f"{status_text} покупок")
+    await callback_query.answer()
+
+@dp.message_handler(state=SearchPurchaseStates.waiting_for_min_cost)
+async def search_purchases_by_min_cost(message: types.Message, state: FSMContext):
+    """Поиск покупок по минимальной стоимости"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Поиск отменен", reply_markup=get_main_keyboard())
+        return
+    
+    if text == '-':
+        min_cost = None
+    else:
+        try:
+            min_cost = float(text.replace(',', '.'))
+        except ValueError:
+            await message.answer("❌ Неверный формат суммы. Введите число или '-'")
+            return
+    
+    await state.update_data(min_cost=min_cost)
+    await SearchPurchaseStates.waiting_for_max_cost.set()
+    await message.answer("💰 Введите максимальную стоимость (или '-' для пропуска):")
+
+@dp.message_handler(state=SearchPurchaseStates.waiting_for_max_cost)
+async def search_purchases_by_max_cost(message: types.Message, state: FSMContext):
+    """Поиск покупок по максимальной стоимости"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Поиск отменен", reply_markup=get_main_keyboard())
+        return
+    
+    data = await state.get_data()
+    min_cost = data.get('min_cost')
+    
+    if text == '-':
+        max_cost = None
+    else:
+        try:
+            max_cost = float(text.replace(',', '.'))
+        except ValueError:
+            await message.answer("❌ Неверный формат суммы. Введите число или '-'")
+            return
+    
+    results = search_purchases(
+        user_id=message.from_user.id,
+        min_cost=min_cost,
+        max_cost=max_cost
+    )
+    
+    range_text = ""
+    if min_cost is not None:
+        range_text += f"от {min_cost} руб. "
+    if max_cost is not None:
+        range_text += f"до {max_cost} руб."
+    
+    await show_purchase_search_results(message.from_user.id, results, f"результатов в диапазоне {range_text}")
+    await state.finish()
+
+# ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ПОИСКА ==========
+
+async def show_search_results(message_or_chat_id, results, description, trans_type):
+    """Показать результаты поиска транзакций"""
+    if isinstance(message_or_chat_id, types.Message):
+        chat_id = message_or_chat_id.from_user.id
+    else:
+        chat_id = message_or_chat_id
+    
+    if not results:
+        await bot.send_message(chat_id, f"🔍 <b>Нет {description}</b>", parse_mode='HTML')
+        return
+    
+    type_text = "расходов" if trans_type == 'expense' else "доходов"
+    response = f"🔍 <b>Найдено {len(results)} {type_text} {description}:</b>\n\n"
+    
+    for trans in results:
+        if len(trans) >= 6:
+            trans_id, trans_type_db, amount, category, description_text, trans_date, time = trans[:7]
+            time_str = f" ({time})" if time else ""
+            
+            response += f"💰 <b>{amount:.2f} руб.</b> - {category}\n"
+            response += f"   📅 {trans_date}{time_str}\n"
+            if description_text:
+                response += f"   📝 {html.escape(description_text)}\n"
+            response += f"   🆔 ID: {trans_id}\n\n"
+    
+    if len(response) > 4000:
+        # Разделяем на части если сообщение слишком длинное
+        parts = [response[i:i+4000] for i in range(0, len(response), 4000)]
+        for part in parts:
+            await bot.send_message(chat_id, part, parse_mode='HTML')
+    else:
+        await bot.send_message(chat_id, response, parse_mode='HTML')
+
+async def show_search_results_chat(chat_id, results, description, trans_type):
+    """Алиас для show_search_results с chat_id"""
+    await show_search_results(chat_id, results, description, trans_type)
+
+async def show_plan_search_results(chat_id, results, description):
+    """Показать результаты поиска планов"""
+    if not results:
+        await bot.send_message(chat_id, f"🔍 <b>Нет {description}</b>", parse_mode='HTML')
+        return
+    
+    response = f"🔍 <b>Найдено {len(results)} планов {description}:</b>\n\n"
+    
+    for plan in results:
+        if len(plan) >= 7:
+            plan_id, title, description_text, plan_date, time, category, is_shared = plan[:7]
+            time_str = f" в {time}" if time else ""
+            shared_icon = " 👥" if is_shared else ""
+            
+            response += f"📅 <b>{html.escape(title)}</b>{shared_icon}\n"
+            response += f"   📅 Дата: {plan_date}{time_str}\n"
+            response += f"   🏷️ Категория: {html.escape(category)}\n"
+            if description_text:
+                response += f"   📋 Описание: {html.escape(description_text)}\n"
+            response += f"   🆔 ID: {plan_id}\n\n"
+    
+    if len(response) > 4000:
+        parts = [response[i:i+4000] for i in range(0, len(response), 4000)]
+        for part in parts:
+            await bot.send_message(chat_id, part, parse_mode='HTML')
+    else:
+        await bot.send_message(chat_id, response, parse_mode='HTML')
+
+async def show_plan_search_results_chat(chat_id, results, description):
+    """Алиас для show_plan_search_results"""
+    await show_plan_search_results(chat_id, results, description)
+
+async def show_purchase_search_results(chat_id, results, description):
+    """Показать результаты поиска покупок"""
+    if not results:
+        await bot.send_message(chat_id, f"🔍 <b>Нет {description}</b>", parse_mode='HTML')
+        return
+    
+    response = f"🔍 <b>Найдено {len(results)} покупок {description}:</b>\n\n"
+    
+    for purchase in results:
+        if len(purchase) >= 7:
+            purchase_id, item_name, cost, priority, target_date, notes, status = purchase[:7]
+            emoji = {'high': '🔴', 'medium': '🟡', 'low': '🟢'}[priority]
+            date_str = f"до {target_date}" if target_date else ""
+            status_emoji = "✅" if status == 'bought' else "📋"
+            
+            response += f"{emoji} <b>{html.escape(item_name)}</b> {status_emoji}\n"
+            response += f"   💰 Стоимость: {cost:.2f} руб.\n"
+            if date_str:
+                response += f"   📅 {date_str}\n"
+            if notes:
+                response += f"   📝 Заметки: {html.escape(notes)}\n"
+            response += f"   🆔 ID: {purchase_id}\n\n"
+    
+    if len(response) > 4000:
+        parts = [response[i:i+4000] for i in range(0, len(response), 4000)]
+        for part in parts:
+            await bot.send_message(chat_id, part, parse_mode='HTML')
+    else:
+        await bot.send_message(chat_id, response, parse_mode='HTML')
+
+async def show_purchase_search_results_chat(chat_id, results, description):
+    """Алиас для show_purchase_search_results"""
+    await show_purchase_search_results(chat_id, results, description)
+
 # ========== ЗАПУСК БОТА ==========
 
 async def on_startup(dp):
