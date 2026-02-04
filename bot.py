@@ -2560,6 +2560,674 @@ async def show_purchase_search_results_chat(chat_id, results, description):
     """Алиас для show_purchase_search_results"""
     await show_purchase_search_results(chat_id, results, description)
 
+# ========== ОБРАБОТЧИКИ СОСТОЯНИЙ РЕДАКТИРОВАНИЯ ==========
+
+# Редактирование расходов
+@dp.message_handler(state=EditExpense.waiting_for_amount)
+async def edit_expense_amount(message: types.Message, state: FSMContext):
+    """Редактирование суммы расхода"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Редактирование отменено", reply_markup=get_main_keyboard())
+        return
+    
+    try:
+        amount = float(text.replace(',', '.'))
+        if amount <= 0:
+            await message.answer("❌ Сумма должна быть больше 0")
+            return
+        
+        data = await state.get_data()
+        trans_id = data.get('trans_id')
+        
+        update_transaction(trans_id, amount=amount)
+        
+        transaction = get_transaction(trans_id)
+        await message.answer(f"✅ Сумма расхода обновлена!\n\n"
+                           f"{format_transaction(transaction, include_id=True)}",
+                           parse_mode='HTML',
+                           reply_markup=get_edit_transaction_keyboard(trans_id, 'expense'))
+        await state.finish()
+    
+    except ValueError:
+        await message.answer("❌ Пожалуйста, введите корректную сумму")
+
+@dp.callback_query_handler(lambda c: c.data.startswith('expense_cat_'), state=EditExpense.waiting_for_category)
+async def edit_expense_category(callback_query: types.CallbackQuery, state: FSMContext):
+    """Редактирование категории расхода"""
+    category = callback_query.data[11:]  # Убираем 'expense_cat_'
+    
+    data = await state.get_data()
+    trans_id = data.get('trans_id')
+    
+    update_transaction(trans_id, category=category)
+    
+    transaction = get_transaction(trans_id)
+    await bot.send_message(callback_query.from_user.id,
+                          f"✅ Категория расхода обновлена!\n\n"
+                          f"{format_transaction(transaction, include_id=True)}",
+                          parse_mode='HTML',
+                          reply_markup=get_edit_transaction_keyboard(trans_id, 'expense'))
+    await state.finish()
+    await callback_query.answer()
+
+@dp.message_handler(state=EditExpense.waiting_for_category)
+async def cancel_edit_expense_category(message: types.Message, state: FSMContext):
+    """Отмена выбора категории при редактировании расхода"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Редактирование отменено", reply_markup=get_main_keyboard())
+    else:
+        await message.answer("Пожалуйста, выберите категорию из предложенных кнопок.")
+
+@dp.message_handler(state=EditExpense.waiting_for_description)
+async def edit_expense_description(message: types.Message, state: FSMContext):
+    """Редактирование описания расхода"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Редактирование отменено", reply_markup=get_main_keyboard())
+        return
+    
+    data = await state.get_data()
+    trans_id = data.get('trans_id')
+    
+    description = message.text if message.text != '-' else None
+    update_transaction(trans_id, description=description)
+    
+    transaction = get_transaction(trans_id)
+    await message.answer(f"✅ Описание расхода обновлено!\n\n"
+                       f"{format_transaction(transaction, include_id=True)}",
+                       parse_mode='HTML',
+                       reply_markup=get_edit_transaction_keyboard(trans_id, 'expense'))
+    await state.finish()
+
+# Редактирование доходов
+@dp.message_handler(state=EditIncome.waiting_for_amount)
+async def edit_income_amount(message: types.Message, state: FSMContext):
+    """Редактирование суммы дохода"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Редактирование отменено", reply_markup=get_main_keyboard())
+        return
+    
+    try:
+        amount = float(text.replace(',', '.'))
+        if amount <= 0:
+            await message.answer("❌ Сумма должна быть больше 0")
+            return
+        
+        data = await state.get_data()
+        trans_id = data.get('trans_id')
+        
+        update_transaction(trans_id, amount=amount)
+        
+        transaction = get_transaction(trans_id)
+        await message.answer(f"✅ Сумма дохода обновлена!\n\n"
+                           f"{format_transaction(transaction, include_id=True)}",
+                           parse_mode='HTML',
+                           reply_markup=get_edit_transaction_keyboard(trans_id, 'income'))
+        await state.finish()
+    
+    except ValueError:
+        await message.answer("❌ Пожалуйста, введите корректную сумму")
+
+@dp.callback_query_handler(lambda c: c.data.startswith('income_cat_'), state=EditIncome.waiting_for_category)
+async def edit_income_category(callback_query: types.CallbackQuery, state: FSMContext):
+    """Редактирование категории дохода"""
+    category = callback_query.data[10:]  # Убираем 'income_cat_'
+    
+    data = await state.get_data()
+    trans_id = data.get('trans_id')
+    
+    update_transaction(trans_id, category=category)
+    
+    transaction = get_transaction(trans_id)
+    await bot.send_message(callback_query.from_user.id,
+                          f"✅ Категория дохода обновлена!\n\n"
+                          f"{format_transaction(transaction, include_id=True)}",
+                          parse_mode='HTML',
+                          reply_markup=get_edit_transaction_keyboard(trans_id, 'income'))
+    await state.finish()
+    await callback_query.answer()
+
+@dp.message_handler(state=EditIncome.waiting_for_category)
+async def cancel_edit_income_category(message: types.Message, state: FSMContext):
+    """Отмена выбора категории при редактировании дохода"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Редактирование отменено", reply_markup=get_main_keyboard())
+    else:
+        await message.answer("Пожалуйста, выберите категорию из предложенных кнопок.")
+
+@dp.message_handler(state=EditIncome.waiting_for_description)
+async def edit_income_description(message: types.Message, state: FSMContext):
+    """Редактирование описания дохода"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Редактирование отменено", reply_markup=get_main_keyboard())
+        return
+    
+    data = await state.get_data()
+    trans_id = data.get('trans_id')
+    
+    description = message.text if message.text != '-' else None
+    update_transaction(trans_id, description=description)
+    
+    transaction = get_transaction(trans_id)
+    await message.answer(f"✅ Описание дохода обновлено!\n\n"
+                       f"{format_transaction(transaction, include_id=True)}",
+                       parse_mode='HTML',
+                       reply_markup=get_edit_transaction_keyboard(trans_id, 'income'))
+    await state.finish()
+
+# Редактирование планов
+@dp.message_handler(state=EditPlan.waiting_for_title)
+async def edit_plan_title(message: types.Message, state: FSMContext):
+    """Редактирование названия плана"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Редактирование отменено", reply_markup=get_main_keyboard())
+        return
+    
+    data = await state.get_data()
+    plan_id = data.get('plan_id')
+    
+    update_plan(plan_id, title=message.text)
+    
+    plan = get_plan(plan_id)
+    await message.answer(f"✅ Название плана обновлено!\n\n"
+                       f"{format_plan(plan, include_id=True)}",
+                       parse_mode='HTML',
+                       reply_markup=get_edit_plan_keyboard(plan_id))
+    await state.finish()
+
+@dp.message_handler(state=EditPlan.waiting_for_description)
+async def edit_plan_description(message: types.Message, state: FSMContext):
+    """Редактирование описания плана"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Редактирование отменено", reply_markup=get_main_keyboard())
+        return
+    
+    data = await state.get_data()
+    plan_id = data.get('plan_id')
+    
+    description = message.text if message.text != '-' else None
+    update_plan(plan_id, description=description)
+    
+    plan = get_plan(plan_id)
+    await message.answer(f"✅ Описание плана обновлено!\n\n"
+                       f"{format_plan(plan, include_id=True)}",
+                       parse_mode='HTML',
+                       reply_markup=get_edit_plan_keyboard(plan_id))
+    await state.finish()
+
+@dp.message_handler(state=EditPlan.waiting_for_date)
+async def edit_plan_date(message: types.Message, state: FSMContext):
+    """Редактирование даты плана"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Редактирование отменено", reply_markup=get_main_keyboard())
+        return
+    
+    data = await state.get_data()
+    plan_id = data.get('plan_id')
+    
+    date_str = text
+    
+    if date_str == 'сегодня':
+        new_date = date.today().isoformat()
+    elif date_str == 'завтра':
+        new_date = (date.today() + timedelta(days=1)).isoformat()
+    else:
+        try:
+            datetime.strptime(date_str, '%Y-%m-%d')
+            new_date = date_str
+        except ValueError:
+            await message.answer("❌ Неверный формат даты. Используйте ГГГГ-ММ-ДД")
+            return
+    
+    update_plan(plan_id, date=new_date)
+    
+    plan = get_plan(plan_id)
+    await message.answer(f"✅ Дата плана обновлена!\n\n"
+                       f"{format_plan(plan, include_id=True)}",
+                       parse_mode='HTML',
+                       reply_markup=get_edit_plan_keyboard(plan_id))
+    await state.finish()
+
+@dp.message_handler(state=EditPlan.waiting_for_time)
+async def edit_plan_time(message: types.Message, state: FSMContext):
+    """Редактирование времени плана"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Редактирование отменено", reply_markup=get_main_keyboard())
+        return
+    
+    data = await state.get_data()
+    plan_id = data.get('plan_id')
+    
+    time_str = message.text if message.text != '-' else None
+    
+    if time_str and time_str != '-':
+        try:
+            datetime.strptime(time_str, '%H:%M')
+        except ValueError:
+            await message.answer("❌ Неверный формат времени. Используйте ЧЧ:ММ")
+            return
+    
+    update_plan(plan_id, time=time_str)
+    
+    plan = get_plan(plan_id)
+    await message.answer(f"✅ Время плана обновлено!\n\n"
+                       f"{format_plan(plan, include_id=True)}",
+                       parse_mode='HTML',
+                       reply_markup=get_edit_plan_keyboard(plan_id))
+    await state.finish()
+
+@dp.callback_query_handler(lambda c: c.data.startswith('plan_cat_'), state=EditPlan.waiting_for_category)
+async def edit_plan_category(callback_query: types.CallbackQuery, state: FSMContext):
+    """Редактирование категории плана"""
+    category = callback_query.data[9:]  # Убираем 'plan_cat_'
+    
+    data = await state.get_data()
+    plan_id = data.get('plan_id')
+    
+    update_plan(plan_id, category=category)
+    
+    plan = get_plan(plan_id)
+    await bot.send_message(callback_query.from_user.id,
+                          f"✅ Категория плана обновлена!\n\n"
+                          f"{format_plan(plan, include_id=True)}",
+                          parse_mode='HTML',
+                          reply_markup=get_edit_plan_keyboard(plan_id))
+    await state.finish()
+    await callback_query.answer()
+
+@dp.message_handler(state=EditPlan.waiting_for_category)
+async def cancel_edit_plan_category(message: types.Message, state: FSMContext):
+    """Отмена выбора категории при редактировании плана"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Редактирование отменено", reply_markup=get_main_keyboard())
+    else:
+        await message.answer("Пожалуйста, выберите категорию из предложенных кнопок.")
+
+# Редактирование покупок
+@dp.message_handler(state=EditPurchase.waiting_for_name)
+async def edit_purchase_name(message: types.Message, state: FSMContext):
+    """Редактирование названия покупки"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Редактирование отменено", reply_markup=get_main_keyboard())
+        return
+    
+    data = await state.get_data()
+    purchase_id = data.get('purchase_id')
+    
+    update_purchase(purchase_id, item_name=message.text)
+    
+    purchase = get_purchase(purchase_id)
+    await message.answer(f"✅ Название покупки обновлено!\n\n"
+                       f"{format_purchase(purchase, include_id=True)}",
+                       parse_mode='HTML',
+                       reply_markup=get_edit_purchase_keyboard(purchase_id))
+    await state.finish()
+
+@dp.message_handler(state=EditPurchase.waiting_for_cost)
+async def edit_purchase_cost(message: types.Message, state: FSMContext):
+    """Редактирование стоимости покупки"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Редактирование отменено", reply_markup=get_main_keyboard())
+        return
+    
+    try:
+        cost = float(text.replace(',', '.'))
+        if cost <= 0:
+            await message.answer("❌ Стоимость должна быть больше 0")
+            return
+        
+        data = await state.get_data()
+        purchase_id = data.get('purchase_id')
+        
+        update_purchase(purchase_id, estimated_cost=cost)
+        
+        purchase = get_purchase(purchase_id)
+        await message.answer(f"✅ Стоимость покупки обновлена!\n\n"
+                           f"{format_purchase(purchase, include_id=True)}",
+                           parse_mode='HTML',
+                           reply_markup=get_edit_purchase_keyboard(purchase_id))
+        await state.finish()
+    
+    except ValueError:
+        await message.answer("❌ Пожалуйста, введите корректную сумму")
+
+@dp.callback_query_handler(lambda c: c.data.startswith('priority_'), state=EditPurchase.waiting_for_priority)
+async def edit_purchase_priority(callback_query: types.CallbackQuery, state: FSMContext):
+    """Редактирование приоритета покупки"""
+    priority = callback_query.data[9:]  # Убираем 'priority_'
+    
+    data = await state.get_data()
+    purchase_id = data.get('purchase_id')
+    
+    update_purchase(purchase_id, priority=priority)
+    
+    purchase = get_purchase(purchase_id)
+    await bot.send_message(callback_query.from_user.id,
+                          f"✅ Приоритет покупки обновлен!\n\n"
+                          f"{format_purchase(purchase, include_id=True)}",
+                          parse_mode='HTML',
+                          reply_markup=get_edit_purchase_keyboard(purchase_id))
+    await state.finish()
+    await callback_query.answer()
+
+@dp.message_handler(state=EditPurchase.waiting_for_priority)
+async def cancel_edit_purchase_priority(message: types.Message, state: FSMContext):
+    """Отмена выбора приоритета при редактировании покупки"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Редактирование отменено", reply_markup=get_main_keyboard())
+    else:
+        await message.answer("Пожалуйста, выберите приоритет из предложенных кнопок.")
+
+@dp.message_handler(state=EditPurchase.waiting_for_date)
+async def edit_purchase_date(message: types.Message, state: FSMContext):
+    """Редактирование даты покупки"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Редактирование отменено", reply_markup=get_main_keyboard())
+        return
+    
+    data = await state.get_data()
+    purchase_id = data.get('purchase_id')
+    
+    date_str = message.text if message.text != '-' else None
+    
+    if date_str and date_str != '-':
+        try:
+            datetime.strptime(date_str, '%Y-%m-%d')
+        except ValueError:
+            await message.answer("❌ Неверный формат даты. Используйте ГГГГ-ММ-ДД")
+            return
+    
+    update_purchase(purchase_id, target_date=date_str)
+    
+    purchase = get_purchase(purchase_id)
+    await message.answer(f"✅ Дата покупки обновлена!\n\n"
+                       f"{format_purchase(purchase, include_id=True)}",
+                       parse_mode='HTML',
+                       reply_markup=get_edit_purchase_keyboard(purchase_id))
+    await state.finish()
+
+@dp.message_handler(state=EditPurchase.waiting_for_notes)
+async def edit_purchase_notes(message: types.Message, state: FSMContext):
+    """Редактирование заметок покупки"""
+    text = message.text.lower()
+    if text in ['отмена', 'cancel', 'стоп', 'отменить']:
+        await state.finish()
+        await message.answer("❌ Редактирование отменено", reply_markup=get_main_keyboard())
+        return
+    
+    data = await state.get_data()
+    purchase_id = data.get('purchase_id')
+    
+    notes = message.text if message.text != '-' else None
+    update_purchase(purchase_id, notes=notes)
+    
+    purchase = get_purchase(purchase_id)
+    await message.answer(f"✅ Заметки покупки обновлены!\n\n"
+                       f"{format_purchase(purchase, include_id=True)}",
+                       parse_mode='HTML',
+                       reply_markup=get_edit_purchase_keyboard(purchase_id))
+    await state.finish()
+
+# ========== ОБРАБОТЧИКИ ОБЩИХ ПЛАНОВ ==========
+
+@dp.callback_query_handler(lambda c: c.data == 'shared_plans')
+async def show_shared_plans_menu(callback_query: types.CallbackQuery):
+    """Меню общих планов"""
+    await bot.send_message(callback_query.from_user.id,
+                          "👥 <b>Общие планы:</b>\n\n"
+                          "Выберите действие:",
+                          parse_mode='HTML',
+                          reply_markup=get_shared_plans_keyboard())
+    await callback_query.answer()
+
+@dp.callback_query_handler(lambda c: c.data == 'show_shared_plans')
+async def show_all_shared_plans(callback_query: types.CallbackQuery):
+    """Показать все общие планы"""
+    shared_plans = get_shared_plans()
+    
+    if not shared_plans:
+        await bot.send_message(callback_query.from_user.id,
+                              "📅 Нет общих планов",
+                              reply_markup=get_shared_plans_keyboard())
+        return
+    
+    response = "👥 <b>Все общие планы:</b>\n\n"
+    current_date = None
+    
+    for plan in shared_plans:
+        if len(plan) >= 14:
+            plan_date = plan[4]  # date
+            title = plan[2]      # title
+            description = plan[3] # description
+            time = plan[5]       # time
+            category = plan[6]   # category
+            username = plan[13] or plan[12]  # full_name или username
+            
+            if plan_date != current_date:
+                current_date = plan_date
+                response += f"\n<b>📅 {plan_date}:</b>\n"
+            
+            time_str = f" в {time}" if time else ""
+            response += f"  • <b>{html.escape(title)}</b>{time_str}\n"
+            response += f"    👤 {username} | 🏷️ {html.escape(category)}\n"
+            
+            if description:
+                desc_short = description[:50] + "..." if len(description) > 50 else description
+                response += f"    📝 {html.escape(desc_short)}\n"
+            
+            response += "\n"
+    
+    await bot.send_message(callback_query.from_user.id, response, parse_mode='HTML')
+    await callback_query.answer()
+
+@dp.callback_query_handler(lambda c: c.data == 'create_shared_plan')
+async def create_shared_plan_start(callback_query: types.CallbackQuery):
+    """Создание общего плана"""
+    await AddPlan.waiting_for_title.set()
+    await bot.send_message(callback_query.from_user.id,
+                          "📝 Введите название общего плана:\n\n"
+                          "Для отмены отправьте 'отмена' или 'cancel'")
+    await callback_query.answer()
+
+@dp.callback_query_handler(lambda c: c.data == 'show_personal_plans')
+async def show_personal_plans(callback_query: types.CallbackQuery):
+    """Показать личные планы"""
+    plans = get_user_plans(callback_query.from_user.id)
+    
+    if not plans:
+        await bot.send_message(callback_query.from_user.id,
+                              "📅 У вас нет личных планов",
+                              reply_markup=get_shared_plans_keyboard())
+        return
+    
+    response = "📅 <b>Ваши личные планы:</b>\n\n"
+    
+    for plan in plans:
+        response += format_plan(plan, include_id=True) + "\n"
+    
+    await bot.send_message(callback_query.from_user.id, response, parse_mode='HTML')
+    await callback_query.answer()
+
+# ========== ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ПОИСКА ==========
+
+def search_transactions(user_id, trans_type=None, description=None, category=None, 
+                       min_amount=None, max_amount=None, date_filter=None):
+    """Поиск транзакций по фильтрам"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    query = '''
+        SELECT id, type, amount, category, description, date,
+               strftime('%H:%M', created_at) as time
+        FROM transactions 
+        WHERE user_id = ? AND is_deleted = 0
+    '''
+    params = [user_id]
+    
+    if trans_type:
+        query += " AND type = ?"
+        params.append(trans_type)
+    
+    if description:
+        query += " AND description LIKE ?"
+        params.append(f'%{description}%')
+    
+    if category:
+        query += " AND category = ?"
+        params.append(category)
+    
+    if min_amount is not None:
+        query += " AND amount >= ?"
+        params.append(min_amount)
+    
+    if max_amount is not None:
+        query += " AND amount <= ?"
+        params.append(max_amount)
+    
+    if date_filter:
+        if date_filter == 'сегодня':
+            query += " AND date = DATE('now')"
+        elif date_filter == 'неделя':
+            query += " AND date >= DATE('now', '-7 days')"
+        elif date_filter == 'месяц':
+            query += " AND strftime('%Y-%m', date) = strftime('%Y-%m', 'now')"
+        else:
+            try:
+                datetime.strptime(date_filter, '%Y-%m-%d')
+                query += " AND date = ?"
+                params.append(date_filter)
+            except ValueError:
+                pass
+    
+    query += " ORDER BY date DESC, created_at DESC"
+    
+    cursor.execute(query, params)
+    results = cursor.fetchall()
+    conn.close()
+    
+    return results
+
+def search_plans(user_id, search_text=None, category=None, date_from=None, 
+                date_to=None, is_shared=None):
+    """Поиск планов по фильтрам"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    query = '''
+        SELECT id, title, description, date, time, category, is_shared
+        FROM plans 
+        WHERE user_id = ? AND is_deleted = 0
+    '''
+    params = [user_id]
+    
+    if search_text:
+        query += " AND (title LIKE ? OR description LIKE ?)"
+        params.append(f'%{search_text}%')
+        params.append(f'%{search_text}%')
+    
+    if category:
+        query += " AND category = ?"
+        params.append(category)
+    
+    if date_from:
+        query += " AND date >= ?"
+        params.append(date_from)
+    
+    if date_to:
+        query += " AND date <= ?"
+        params.append(date_to)
+    
+    if is_shared is not None:
+        query += " AND is_shared = ?"
+        params.append(int(is_shared))
+    
+    query += " ORDER BY date, time NULLS FIRST"
+    
+    cursor.execute(query, params)
+    results = cursor.fetchall()
+    conn.close()
+    
+    return results
+
+def search_purchases(user_id, search_text=None, priority=None, status=None,
+                    min_cost=None, max_cost=None):
+    """Поиск покупок по фильтрам"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    query = '''
+        SELECT id, item_name, estimated_cost, priority, target_date, notes, status
+        FROM planned_purchases 
+        WHERE user_id = ? AND is_deleted = 0
+    '''
+    params = [user_id]
+    
+    if search_text:
+        query += " AND (item_name LIKE ? OR notes LIKE ?)"
+        params.append(f'%{search_text}%')
+        params.append(f'%{search_text}%')
+    
+    if priority:
+        query += " AND priority = ?"
+        params.append(priority)
+    
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+    
+    if min_cost is not None:
+        query += " AND estimated_cost >= ?"
+        params.append(min_cost)
+    
+    if max_cost is not None:
+        query += " AND estimated_cost <= ?"
+        params.append(max_cost)
+    
+    query += " ORDER BY "
+    query += '''
+        CASE priority 
+            WHEN 'high' THEN 1
+            WHEN 'medium' THEN 2
+            WHEN 'low' THEN 3
+        END,
+        target_date NULLS LAST
+    '''
+    
+    cursor.execute(query, params)
+    results = cursor.fetchall()
+    conn.close()
+    
+    return results
+
 # ========== ЗАПУСК БОТА ==========
 
 async def on_startup(dp):

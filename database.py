@@ -456,6 +456,162 @@ def get_recent_purchases(user_id, limit=5):
     conn.close()
     return results
 
+# ========== ФУНКЦИИ ПОИСКА ТРАНЗАКЦИЙ ==========
+
+def search_transactions(user_id, trans_type=None, description=None, category=None, 
+                       min_amount=None, max_amount=None, date_filter=None):
+    """Поиск транзакций по фильтрам"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    query = '''
+        SELECT id, type, amount, category, description, date,
+               strftime('%H:%M', created_at) as time
+        FROM transactions 
+        WHERE user_id = ? AND is_deleted = 0
+    '''
+    params = [user_id]
+    
+    if trans_type:
+        query += " AND type = ?"
+        params.append(trans_type)
+    
+    if description:
+        query += " AND description LIKE ?"
+        params.append(f'%{description}%')
+    
+    if category:
+        query += " AND category = ?"
+        params.append(category)
+    
+    if min_amount is not None:
+        query += " AND amount >= ?"
+        params.append(min_amount)
+    
+    if max_amount is not None:
+        query += " AND amount <= ?"
+        params.append(max_amount)
+    
+    if date_filter:
+        if date_filter == 'сегодня':
+            query += " AND date = DATE('now')"
+        elif date_filter == 'неделя':
+            query += " AND date >= DATE('now', '-7 days')"
+        elif date_filter == 'месяц':
+            query += " AND strftime('%Y-%m', date) = strftime('%Y-%m', 'now')"
+        else:
+            try:
+                datetime.strptime(date_filter, '%Y-%m-%d')
+                query += " AND date = ?"
+                params.append(date_filter)
+            except ValueError:
+                pass
+    
+    query += " ORDER BY date DESC, created_at DESC"
+    
+    cursor.execute(query, params)
+    results = cursor.fetchall()
+    conn.close()
+    
+    return results
+
+# ========== ФУНКЦИИ ПОИСКА ПЛАНОВ ==========
+
+def search_plans(user_id, search_text=None, category=None, date_from=None, 
+                date_to=None, is_shared=None):
+    """Поиск планов по фильтрам"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    query = '''
+        SELECT id, title, description, date, time, category, is_shared
+        FROM plans 
+        WHERE user_id = ? AND is_deleted = 0
+    '''
+    params = [user_id]
+    
+    if search_text:
+        query += " AND (title LIKE ? OR description LIKE ?)"
+        params.append(f'%{search_text}%')
+        params.append(f'%{search_text}%')
+    
+    if category:
+        query += " AND category = ?"
+        params.append(category)
+    
+    if date_from:
+        query += " AND date >= ?"
+        params.append(date_from)
+    
+    if date_to:
+        query += " AND date <= ?"
+        params.append(date_to)
+    
+    if is_shared is not None:
+        query += " AND is_shared = ?"
+        params.append(int(is_shared))
+    
+    query += " ORDER BY date, time NULLS FIRST"
+    
+    cursor.execute(query, params)
+    results = cursor.fetchall()
+    conn.close()
+    
+    return results
+
+# ========== ФУНКЦИИ ПОИСКА ПОКУПОК ==========
+
+def search_purchases(user_id, search_text=None, priority=None, status=None,
+                    min_cost=None, max_cost=None):
+    """Поиск покупок по фильтрам"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    query = '''
+        SELECT id, item_name, estimated_cost, priority, target_date, notes, status
+        FROM planned_purchases 
+        WHERE user_id = ? AND is_deleted = 0
+    '''
+    params = [user_id]
+    
+    if search_text:
+        query += " AND (item_name LIKE ? OR notes LIKE ?)"
+        params.append(f'%{search_text}%')
+        params.append(f'%{search_text}%')
+    
+    if priority:
+        query += " AND priority = ?"
+        params.append(priority)
+    
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+    
+    if min_cost is not None:
+        query += " AND estimated_cost >= ?"
+        params.append(min_cost)
+    
+    if max_cost is not None:
+        query += " AND estimated_cost <= ?"
+        params.append(max_cost)
+    
+    query += " ORDER BY "
+    query += '''
+        CASE priority 
+            WHEN 'high' THEN 1
+            WHEN 'medium' THEN 2
+            WHEN 'low' THEN 3
+        END,
+        target_date NULLS LAST
+    '''
+    
+    cursor.execute(query, params)
+    results = cursor.fetchall()
+    conn.close()
+    
+    return results
+
+
 # ========== СТАТИСТИКА ==========
 
 def get_period_statistics(user_id, period='month'):
